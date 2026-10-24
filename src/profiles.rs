@@ -227,6 +227,32 @@ fn discover_sources(
                 }
             }
         }
+        // Preserve worlds made with Luma's former quick Vanilla selector by
+        // presenting the existing folder as an instance, without moving files.
+        if source == root {
+            if let Ok(entries) = fs::read_dir(root.join("instances")) {
+                for entry in entries.filter_map(Result::ok) {
+                    let game = entry.path();
+                    if profiles.iter().any(|p| p.game_dir == game)
+                        || (!game.join("saves").is_dir() && !game.join("options.txt").is_file())
+                    {
+                        continue;
+                    }
+                    let id = entry.file_name().to_string_lossy().into_owned();
+                    if let Ok(profile) = detected_profile(
+                        root,
+                        root,
+                        &id,
+                        Some(&format!("Vanilla {id} · anterior")),
+                        Some(game),
+                    ) {
+                        if profile.loader == Loader::Vanilla {
+                            profiles.push(profile);
+                        }
+                    }
+                }
+            }
+        }
     }
     if profiles != original {
         save(root, &profiles)?;
@@ -245,7 +271,12 @@ pub fn loader_versions(loader: Loader, minecraft: &str) -> Result<Vec<String>> {
             .map_err(|_| anyhow::anyhow!("URL de Fabric inválida"))?
             .pop_if_empty()
             .push(minecraft);
-        let list: Value = client.get(url).send()?.error_for_status()?.json()?;
+        let list: Value = client
+            .get(url)
+            .timeout(std::time::Duration::from_secs(30))
+            .send()?
+            .error_for_status()?
+            .json()?;
         list.as_array()
             .context("Fabric devolvió una lista inválida")?
             .iter()
@@ -274,7 +305,12 @@ pub fn loader_versions(loader: Loader, minecraft: &str) -> Result<Vec<String>> {
                 prefix,
             )
         };
-        let xml = client.get(url).send()?.error_for_status()?.text()?;
+        let xml = client
+            .get(url)
+            .timeout(std::time::Duration::from_secs(30))
+            .send()?
+            .error_for_status()?
+            .text()?;
         let pattern = regex::Regex::new(r"<version>\s*([^<]+?)\s*</version>")?;
         let mut versions: Vec<String> = pattern
             .captures_iter(&xml)
@@ -773,6 +809,31 @@ mod tests {
             Loader::Forge
         );
         assert_eq!(infer_loader(&json!({"id":"1.21.1"})), Loader::Vanilla);
+    }
+
+    #[test]
+    fn former_quick_vanilla_worlds_become_instances_without_moving_data() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("target/test-data")
+            .join(unique_id().unwrap());
+        model::write_json(
+            &root.join("versions/1.21.1/1.21.1.json"),
+            &json!({"id":"1.21.1"}),
+        )
+        .unwrap();
+        let game = root.join("instances/1.21.1");
+        fs::create_dir_all(game.join("saves/world")).unwrap();
+        fs::write(game.join("saves/world/level.dat"), b"existing world").unwrap();
+        let first = discover_sources(&root, Vec::new(), vec![root.clone()]).unwrap();
+        assert_eq!(first.len(), 1);
+        assert_eq!(first[0].game_dir, game);
+        assert_eq!(first[0].loader, Loader::Vanilla);
+        let second = discover_sources(&root, first.clone(), vec![root.clone()]).unwrap();
+        assert_eq!(first, second);
+        assert_eq!(
+            fs::read(game.join("saves/world/level.dat")).unwrap(),
+            b"existing world"
+        );
     }
 
     #[test]

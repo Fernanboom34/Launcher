@@ -42,8 +42,12 @@ fn main() -> eframe::Result {
         "Luma · Minecraft Launcher",
         eframe::NativeOptions {
             viewport: eframe::egui::ViewportBuilder::default()
-                .with_inner_size([1160.0, 780.0])
-                .with_min_inner_size([960.0, 680.0])
+                .with_inner_size(if std::env::var_os("LUMA_PREVIEW_COMPACT").is_some() {
+                    [1060.0, 720.0]
+                } else {
+                    [1360.0, 880.0]
+                })
+                .with_min_inner_size([1060.0, 720.0])
                 .with_icon(icon()),
             ..Default::default()
         },

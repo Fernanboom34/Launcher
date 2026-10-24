@@ -43,6 +43,7 @@ pub struct Settings {
     pub local_name: String,
     pub active_installation: String,
     pub game_directory: Option<PathBuf>,
+    pub instance_styles: std::collections::BTreeMap<String, InstanceStyle>,
 }
 
 impl Default for Settings {
@@ -57,8 +58,19 @@ impl Default for Settings {
             local_name: "Jugador".into(),
             active_installation: String::new(),
             game_directory: None,
+            instance_styles: Default::default(),
         }
     }
+}
+
+#[derive(Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct InstanceStyle {
+    pub cover_seed: u32,
+    pub artwork: Option<PathBuf>,
+    pub favorite: bool,
+    pub last_played: u64,
+    pub created_at: u64,
 }
 
 impl Settings {

@@ -6,10 +6,10 @@ Launcher nativo de **Minecraft Java Edition para Windows x64**, escrito en Rust 
 
 Ejecuta `artifacts/Luma.exe` si ya está compilado. No requiere instalar Rust para utilizarlo.
 
-1. En **Versiones**, elige una release, snapshot, beta o alpha del catálogo oficial de Mojang.
-2. Con conexión y con **Jugar sin conexión** desactivado, pulsa **Instalar**. Se descargan el cliente, las bibliotecas, los recursos y el Java que requiere esa versión.
-3. En **Inicio**, escribe tu nombre y pulsa **Usar nombre**. No necesitas una cuenta Microsoft; al abrir por primera vez ya hay un jugador local llamado `Jugador`.
-4. Pulsa **Jugar**. Activa **Jugar sin conexión** si ya tienes todos los archivos instalados y quieres que el launcher no descargue nada. Con la opción desactivada, un perfil local también puede jugar sin cuenta y descargar automáticamente lo que falte.
+1. En **Inicio** o **Biblioteca**, pulsa **+ Nueva instancia**. Elige un nombre, el cargador y una versión de Minecraft. **Versiones** permite buscar un lanzamiento del catálogo y abrir la misma ventana de creación.
+2. Pulsa **Crear instancia**. Se descargan el cliente, las bibliotecas, los recursos y el Java que requiere esa versión.
+3. En el panel derecho, abre **Cambiar jugador**, escribe tu nombre y pulsa **Usar nombre**. No necesitas una cuenta Microsoft; al abrir por primera vez ya hay un jugador local llamado `Jugador`.
+4. Pulsa **Jugar** en la tarjeta de la instancia. Activa **Modo sin conexión** en el panel derecho si ya tienes todos los archivos instalados y quieres que el launcher no descargue nada. Con la opción desactivada, un jugador local también puede jugar sin cuenta y descargar automáticamente lo que falte.
 
 El UUID local se genera a partir del nombre siguiendo el formato offline de Java. Mantén el mismo nombre para conservar tu identidad e inventario en los mundos y servidores que la usen.
 
@@ -17,23 +17,27 @@ El propio juego puede intentar acceder a servicios de red; no se modifican sus a
 
 ## Perfiles y mods
 
-En **Perfiles y mods** puedes crear instalaciones **Vanilla, Fabric, NeoForge y Forge**:
+La pantalla **Inicio** reúne accesos rápidos y una biblioteca de tarjetas. El botón de cuadrícula del menú lateral abre la **Biblioteca** completa. Puedes buscar por nombre, versión o cargador, filtrar favoritos y ordenar por actividad, nombre o Minecraft.
 
-1. Escribe el nombre del perfil y elige la versión de Minecraft y el cargador.
-2. Para un cargador, pulsa **Consultar versiones compatibles** y elige una de las versiones publicadas por su proyecto.
-3. Pulsa **Crear e instalar perfil**. Luma descarga el juego, Java y las bibliotecas; para Forge y NeoForge ejecuta el instalador oficial de cliente, incluidos sus parches.
-4. Selecciona **Usar perfil** o elígelo en **Inicio → Instalación** y pulsa **Jugar**.
-5. **Abrir mods** abre la carpeta donde colocar los `.jar` compatibles con ese Minecraft y ese cargador. Fabric API se añade como un mod cuando lo requieran los mods que uses.
+Cada tarjeta permite jugar directamente con su botón verde o con doble clic. Un clic selecciona la instancia y muestra sus opciones en el panel derecho. El menú de la tarjeta permite abrir sus carpetas, marcarla como favorita, renombrarla y personalizar su portada. Los iconos laterales también dan acceso a tus primeras instancias.
+
+En **Nueva instancia** puedes crear instalaciones **Vanilla, Fabric, NeoForge y Forge**:
+
+1. Escribe el nombre, elige el cargador y la versión de Minecraft. El nombre se completa automáticamente si lo dejas vacío.
+2. Las versiones compatibles del cargador se consultan automáticamente. Puedes usar la **Última compatible** o activar **Elegir versión**.
+3. Personaliza la portada con **Generar otra**, una paleta de colores o **Subir PNG**. Las imágenes se copian a la carpeta de datos de Luma y se ajustan al formato de la tarjeta.
+4. Pulsa **Crear instancia**. Luma descarga el juego, Java y las bibliotecas; para Forge y NeoForge ejecuta el instalador oficial de cliente, incluidos sus parches.
+5. Pulsa **Jugar** en su tarjeta. **Mods** o **Abrir carpeta de mods** abre la carpeta donde colocar los `.jar` compatibles con ese Minecraft y ese cargador. Fabric API se añade como un mod cuando lo requieran los mods que uses.
 
 Cada perfil creado tiene su propia carpeta de juego: `mods`, `config`, `saves`, opciones y capturas. Puedes crear varios perfiles para el mismo Minecraft y cargador sin mezclar sus mundos o mods. Java, las bibliotecas y los recursos descargados se comparten. **Renombrar** cambia el nombre mostrado sin mover archivos.
 
-También puedes usar **Instalar Forge/NeoForge desde .jar** para seleccionar un instalador ya descargado. La versión de Minecraft se obtiene del propio instalador. Los instaladores antiguos de Forge con `versionInfo` se importan con su biblioteca universal; los modernos ejecutan el instalador oficial.
+También puedes usar **Importar → Instalador Forge / NeoForge .jar…** para seleccionar un instalador ya descargado. La versión de Minecraft se obtiene del propio instalador. Los instaladores antiguos de Forge con `versionInfo` se importan con su biblioteca universal; los modernos ejecutan el instalador oficial.
 
-Luma revisa cada diez segundos sus clientes y los de `%APPDATA%\.minecraft`. Los perfiles de `launcher_profiles.json` y los clientes de cargadores en `versions/` aparecen automáticamente. **Detectar perfiles** fuerza la revisión y **Elegir carpeta .minecraft…** añade instalaciones de otra carpeta. Las instalaciones importadas conservan su ubicación; cuando el launcher de origen declara una carpeta de juego, Luma la respeta para usar los mods y mundos existentes.
+Luma revisa cada diez segundos sus clientes y los de `%APPDATA%\.minecraft`. Los perfiles de `launcher_profiles.json` y los clientes de cargadores en `versions/` aparecen automáticamente. **Importar → Detectar instalaciones** fuerza la revisión y **Desde carpeta .minecraft…** añade instalaciones de otra carpeta. Las instalaciones importadas conservan su ubicación; cuando el launcher de origen declara una carpeta de juego, Luma la respeta para usar los mods y mundos existentes. Las partidas de la antigua selección rápida Vanilla se muestran como instancias anteriores, conservando sus archivos en su ubicación original.
 
-Si ejecutas un instalador externo, utiliza **Carpeta de Luma para instaladores** y selecciona esa ruta como destino en el instalador. Cuando termine, el cliente aparecerá como perfil. El botón prepara el archivo de perfiles que esperan los instaladores.
+Si ejecutas un instalador externo, utiliza **Importar → Carpeta para instaladores** y selecciona esa ruta como destino en el instalador. Cuando termine, el cliente aparecerá en la biblioteca. La opción prepara el archivo de perfiles que esperan los instaladores.
 
-La opción **Jugar sin conexión** requiere haber completado primero la instalación. Crear o instalar un cargador necesita conexión. Las versiones compatibles dependen de lo que publique cada proyecto; el launcher muestra un aviso cuando no existe un cargador para el Minecraft elegido.
+La opción **Modo sin conexión** requiere haber completado primero la instalación. Crear o instalar un cargador necesita conexión. Las versiones compatibles dependen de lo que publique cada proyecto; el launcher muestra un aviso cuando no existe un cargador para el Minecraft elegido.
 
 ### Cuenta Microsoft (opcional)
 
@@ -106,6 +110,7 @@ Los archivos se guardan en `%LOCALAPPDATA%\Luma\LumaLauncher\data`, accesibles d
 - `instances/<versión>/`: partidas de la selección rápida Vanilla anterior.
 - `instances/<id del perfil>/`: mods, mundos y configuración de cada perfil creado.
 - `profiles.json`: instalaciones registradas y sus carpetas; la identidad del jugador se guarda por separado en `settings.json`.
+- `artwork/`: portadas PNG de las instancias. Los colores, favoritos y actividad reciente se guardan en `settings.json` por identificador de instancia.
 - `installers/` y `logs/installer-<id>.log`: instaladores oficiales y su salida de diagnóstico.
 - `logs/game-latest.log`: salida del último proceso de Minecraft.
 - `manifest.json` y `settings.json`: catálogo guardado, preferencias y perfil offline; sin contraseñas ni tokens de sesión.

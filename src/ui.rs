@@ -19,14 +19,19 @@ use std::{
     time::{Duration, Instant},
 };
 
-const BG: Color32 = Color32::from_rgb(13, 17, 24);
-const PANEL: Color32 = Color32::from_rgb(21, 27, 37);
-const CARD: Color32 = Color32::from_rgb(27, 35, 47);
-const TEXT: Color32 = Color32::from_rgb(233, 239, 245);
-const MUTED: Color32 = Color32::from_rgb(139, 154, 174);
-const MINT: Color32 = Color32::from_rgb(129, 232, 181);
+mod art;
+mod library;
 
-#[derive(PartialEq)]
+const BG: Color32 = Color32::from_rgb(22, 24, 28);
+const PANEL: Color32 = Color32::from_rgb(32, 35, 40);
+const CARD: Color32 = Color32::from_rgb(39, 42, 48);
+const HOVER: Color32 = Color32::from_rgb(49, 53, 60);
+const BORDER: Color32 = Color32::from_rgb(57, 61, 69);
+const TEXT: Color32 = Color32::from_rgb(242, 244, 246);
+const MUTED: Color32 = Color32::from_rgb(154, 164, 178);
+const MINT: Color32 = Color32::from_rgb(68, 221, 139);
+
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum Page {
     Home,
     Versions,
@@ -65,6 +70,11 @@ pub struct Launcher {
     loader_query: Option<(Loader, String)>,
     rename_profile: Option<(String, String)>,
     next_profile_scan: Instant,
+    library: library::LibraryState,
+    pending_launch: Option<String>,
+    running_installation: Option<String>,
+    preview_started: Instant,
+    preview_requested: bool,
 }
 
 impl Launcher {
@@ -75,16 +85,18 @@ impl Launcher {
         style.visuals.window_fill = PANEL;
         style.visuals.extreme_bg_color = BG;
         style.visuals.override_text_color = Some(TEXT);
-        style.visuals.selection.bg_fill = Color32::from_rgb(45, 91, 77);
+        style.visuals.selection.bg_fill = Color32::from_rgb(36, 83, 58);
         style.visuals.selection.stroke = Stroke::new(1.0_f32, MINT);
-        style.visuals.widgets.inactive.bg_fill = Color32::from_rgb(57, 73, 92);
-        style.visuals.widgets.inactive.weak_bg_fill = Color32::from_rgb(36, 47, 61);
-        style.visuals.widgets.inactive.bg_stroke =
-            Stroke::new(1.0_f32, Color32::from_rgb(50, 65, 82));
-        style.visuals.widgets.hovered.bg_fill = Color32::from_rgb(43, 61, 71);
-        style.visuals.widgets.active.bg_fill = Color32::from_rgb(52, 82, 77);
-        style.spacing.item_spacing = Vec2::new(12.0, 12.0);
-        style.spacing.button_padding = Vec2::new(16.0, 10.0);
+        style.visuals.widgets.inactive.bg_fill = Color32::from_rgb(64, 69, 78);
+        style.visuals.widgets.inactive.weak_bg_fill = Color32::from_rgb(49, 53, 59);
+        style.visuals.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, BORDER);
+        style.visuals.widgets.hovered.bg_fill = HOVER;
+        style.visuals.widgets.active.bg_fill = Color32::from_rgb(45, 88, 63);
+        style.visuals.widgets.inactive.corner_radius = CornerRadius::same(8);
+        style.visuals.widgets.hovered.corner_radius = CornerRadius::same(8);
+        style.visuals.widgets.active.corner_radius = CornerRadius::same(8);
+        style.spacing.item_spacing = Vec2::new(10.0, 10.0);
+        style.spacing.button_padding = Vec2::new(12.0, 8.0);
         style
             .text_styles
             .insert(egui::TextStyle::Body, FontId::proportional(15.0));
@@ -135,7 +147,7 @@ impl Launcher {
             rx,
             page: match std::env::var("LUMA_PREVIEW_PAGE").as_deref() {
                 Ok("versions") => Page::Versions,
-                Ok("profiles") => Page::Profiles,
+                Ok("profiles") | Ok("selected") => Page::Profiles,
                 Ok("settings") => Page::Settings,
                 Ok("activity") => Page::Activity,
                 _ => Page::Home,
@@ -161,7 +173,32 @@ impl Launcher {
             loader_query: None,
             rename_profile: None,
             next_profile_scan: Instant::now() + Duration::from_secs(10),
+            library: library::LibraryState::default(),
+            pending_launch: None,
+            running_installation: None,
+            preview_started: Instant::now(),
+            preview_requested: false,
         };
+        if std::env::var("LUMA_PREVIEW_PAGE").as_deref() == Ok("selected") {
+            if let Some(profile) = app.installations.first() {
+                app.settings.active_installation = profile.id.clone();
+            }
+        }
+        if std::env::var("LUMA_PREVIEW_PAGE").as_deref() == Ok("create") {
+            app.open_create();
+            if let Some(profile) = app
+                .installations
+                .iter()
+                .find(|p| p.loader == Loader::NeoForge)
+                .cloned()
+            {
+                app.new_minecraft = profile.minecraft.clone();
+                app.new_loader = profile.loader;
+                app.new_loader_version = profile.loader_version.clone();
+                app.loader_versions = vec![profile.loader_version];
+                app.loader_query = Some((profile.loader, profile.minecraft));
+            }
+        }
         if app.settings.offline || std::env::var_os("LUMA_PREVIEW").is_some() {
             app.cache = true;
             app.status = if app.settings.offline {
@@ -177,6 +214,9 @@ impl Launcher {
     }
 
     fn save_settings(&mut self) {
+        if std::env::var_os("LUMA_PREVIEW").is_some() {
+            return;
+        }
         if let Err(e) = model::write_json(&self.root.join("settings.json"), &self.settings) {
             self.error = Some(format!("No se pudieron guardar los ajustes: {e:#}"));
         }
@@ -235,6 +275,9 @@ impl Launcher {
     }
 
     fn run(&mut self, play: bool) {
+        self.pending_launch = play
+            .then(|| self.settings.active_installation.clone())
+            .filter(|id| !id.is_empty());
         let installation = self.active_installation().cloned();
         let version = if let Some(profile) = &installation {
             match profiles::launch_version(profile) {
@@ -339,6 +382,22 @@ impl Launcher {
                 }
                 Event::Profiles(list) => self.installations = list,
                 Event::ProfileCreated(profile) => {
+                    if let Some(style) = self.library.pending_style.take() {
+                        self.settings
+                            .instance_styles
+                            .insert(profile.id.clone(), style);
+                    }
+                    self.library.create_open = false;
+                    self.library.reveal_created();
+                    self.settings
+                        .instance_styles
+                        .entry(profile.id.clone())
+                        .or_default()
+                        .created_at = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs();
+                    self.page = Page::Profiles;
                     self.settings.active_installation = profile.id;
                     self.settings.selected = profile.version_id;
                     self.save_settings();
@@ -351,11 +410,24 @@ impl Launcher {
                     }
                 }
                 Event::GameStarted => {
+                    self.running_installation = self.pending_launch.clone();
+                    if let Some(id) = &self.running_installation {
+                        self.settings
+                            .instance_styles
+                            .entry(id.clone())
+                            .or_default()
+                            .last_played = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs();
+                        self.save_settings();
+                    }
                     self.game_running = true;
                     self.status = "Minecraft está en ejecución. ¡Disfruta tu mundo!".into();
                     self.progress = None;
                 }
                 Event::GameExited(code) => {
+                    self.running_installation = None;
                     self.game_running = false;
                     self.status = format!(
                         "Minecraft se cerró · código {}",
@@ -368,6 +440,7 @@ impl Launcher {
                     }
                 }
                 Event::Error(error) => {
+                    self.library.pending_style = None;
                     self.activity.push(error.clone());
                     self.error = Some(error);
                     self.auth_url = None;
@@ -384,286 +457,6 @@ impl Launcher {
         if self.activity.len() > 300 {
             self.activity.drain(..self.activity.len() - 300);
         }
-    }
-
-    fn sidebar(&mut self, ctx: &egui::Context) {
-        egui::SidePanel::left("navigation")
-            .exact_width(190.0)
-            .resizable(false)
-            .frame(egui::Frame::new().fill(PANEL).inner_margin(22.0))
-            .show(ctx, |ui| {
-                ui.add_space(12.0);
-                ui.horizontal(|ui| {
-                    let (rect, _) = ui.allocate_exact_size(Vec2::splat(30.0), Sense::hover());
-                    ui.painter().rect_filled(rect, 8.0, MINT);
-                    ui.painter().text(
-                        rect.center(),
-                        egui::Align2::CENTER_CENTER,
-                        "L",
-                        FontId::proportional(24.0),
-                        BG,
-                    );
-                    ui.label(RichText::new("luma").size(29.0).strong());
-                });
-                ui.label(RichText::new("UN MUNDO POR CREAR").size(9.0).color(MUTED));
-                ui.add_space(40.0);
-                for (page, label) in [
-                    (Page::Home, "Inicio"),
-                    (Page::Versions, "Versiones"),
-                    (Page::Profiles, "Perfiles y mods"),
-                    (Page::Settings, "Ajustes"),
-                    (Page::Activity, "Actividad"),
-                ] {
-                    let active = self.page == page;
-                    let button = egui::Button::new(RichText::new(label).color(if active {
-                        MINT
-                    } else {
-                        MUTED
-                    }))
-                    .fill(if active {
-                        Color32::from_rgb(34, 59, 53)
-                    } else {
-                        Color32::TRANSPARENT
-                    })
-                    .corner_radius(8.0);
-                    if ui.add_sized([146.0, 43.0], button).clicked() {
-                        self.page = page;
-                    }
-                }
-                ui.with_layout(Layout::bottom_up(Align::LEFT), |ui| {
-                    ui.label(
-                        RichText::new(format!("LUMA  {}", env!("CARGO_PKG_VERSION")))
-                            .size(10.0)
-                            .color(MUTED),
-                    );
-                    ui.add_space(12.0);
-                    card().show(ui, |ui| {
-                        ui.label(
-                            RichText::new(
-                                self.settings
-                                    .profile
-                                    .as_ref()
-                                    .map(|p| p.name.as_str())
-                                    .unwrap_or("Sin cuenta"),
-                            )
-                            .strong(),
-                        );
-                        ui.label(
-                            RichText::new(
-                                if self.settings.profile.as_ref().is_some_and(|p| p.local) {
-                                    "Perfil local · sin cuenta"
-                                } else if self.settings.profile.is_some() {
-                                    "Perfil Microsoft"
-                                } else {
-                                    "Conecta tu cuenta"
-                                },
-                            )
-                            .size(11.0)
-                            .color(MUTED),
-                        );
-                    });
-                });
-            });
-    }
-
-    fn home(&mut self, ui: &mut egui::Ui) {
-        let user = self
-            .settings
-            .profile
-            .as_ref()
-            .map(|p| format!(", {}", p.name))
-            .unwrap_or_default();
-        ui.label(
-            RichText::new(format!("Bienvenido{user}."))
-                .size(27.0)
-                .strong(),
-        );
-        ui.label(RichText::new("El próximo gran mundo empieza con un bloque.").color(MUTED));
-        ui.add_space(10.0);
-        landscape(ui);
-        ui.add_space(10.0);
-        ui.horizontal(|ui| {
-            ui.label(
-                RichText::new("TU AVENTURA")
-                    .size(11.0)
-                    .strong()
-                    .color(MUTED),
-            );
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.label(
-                    RichText::new(if self.cache {
-                        "CATÁLOGO LOCAL"
-                    } else {
-                        "MINECRAFT JAVA EDITION"
-                    })
-                    .size(10.0)
-                    .color(MINT),
-                );
-            });
-        });
-        card().show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.label(RichText::new("Instalación").size(12.0).color(MUTED));
-                let selected = self
-                    .active_installation()
-                    .map(|p| format!("{} · {}", p.name, p.loader.label()))
-                    .unwrap_or_else(|| "Vanilla · selección rápida".into());
-                let before = self.settings.active_installation.clone();
-                ui.add_enabled_ui(!self.busy, |ui| {
-                    egui::ComboBox::from_id_salt("active_installation")
-                        .width(300.0)
-                        .selected_text(selected)
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(
-                                &mut self.settings.active_installation,
-                                String::new(),
-                                "Vanilla · selección rápida",
-                            );
-                            for profile in &self.installations {
-                                ui.selectable_value(
-                                    &mut self.settings.active_installation,
-                                    profile.id.clone(),
-                                    format!(
-                                        "{} · {} · {}",
-                                        profile.name,
-                                        profile.loader.label(),
-                                        profile.minecraft
-                                    ),
-                                );
-                            }
-                        });
-                });
-                if before != self.settings.active_installation {
-                    self.save_settings();
-                }
-                if ui.button("Gestionar perfiles").clicked() {
-                    self.page = Page::Profiles;
-                }
-            });
-            ui.separator();
-            ui.horizontal(|ui| {
-                ui.label(
-                    RichText::new("Nombre para jugar sin cuenta")
-                        .size(12.0)
-                        .color(MUTED),
-                );
-                ui.add_enabled(
-                    !self.busy,
-                    egui::TextEdit::singleline(&mut self.settings.local_name)
-                        .desired_width(150.0)
-                        .char_limit(16),
-                );
-                if ui
-                    .add_enabled(!self.busy, egui::Button::new("Usar nombre"))
-                    .clicked()
-                {
-                    match model::Profile::offline(&self.settings.local_name) {
-                        Ok(profile) => {
-                            self.settings.profile = Some(profile);
-                            self.session = None;
-                            self.save_settings();
-                            self.error = None;
-                            self.status = "Perfil local listo · no necesitas una cuenta".into();
-                        }
-                        Err(error) => self.error = Some(error.to_string()),
-                    }
-                }
-            });
-            ui.separator();
-            ui.horizontal(|ui| {
-                ui.vertical(|ui| {
-                    ui.label(RichText::new("Versión del juego").size(12.0).color(MUTED));
-                    self.version_combo(ui);
-                });
-                ui.add_space(12.0);
-                ui.vertical(|ui| {
-                    ui.label(RichText::new("Modo de juego").size(12.0).color(MUTED));
-                    if ui
-                        .add_enabled(
-                            !self.busy,
-                            egui::Checkbox::new(&mut self.settings.offline, "Jugar sin conexión"),
-                        )
-                        .changed()
-                    {
-                        self.save_settings();
-                    }
-                });
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    let ready = (self.selected().is_some() || self.active_installation().is_some())
-                        && !self.busy;
-                    if ui
-                        .add_enabled(
-                            ready,
-                            primary(if self.game_running {
-                                "En el juego"
-                            } else {
-                                "Jugar"
-                            })
-                            .min_size(Vec2::new(152.0, 50.0)),
-                        )
-                        .clicked()
-                    {
-                        self.run(true);
-                    }
-                    if ui
-                        .add_enabled(
-                            ready && !self.settings.offline,
-                            egui::Button::new("Instalar").min_size(Vec2::new(90.0, 50.0)),
-                        )
-                        .clicked()
-                    {
-                        self.run(false);
-                    }
-                });
-            });
-        });
-        ui.add_space(8.0);
-        ui.columns(3, |cols| {
-            stat(
-                &mut cols[0],
-                "VERSIONES INSTALADAS",
-                &self.installed.len().to_string(),
-                "Listas en este equipo",
-            );
-            stat(
-                &mut cols[1],
-                "MEMORIA ASIGNADA",
-                &format!("{:.1} GB", self.settings.memory_mb as f32 / 1024.0),
-                "Ajustable a tu manera",
-            );
-            stat(
-                &mut cols[2],
-                "TU ESPACIO",
-                "Sin límites",
-                "Cada versión tiene sus mundos",
-            );
-        });
-    }
-
-    fn version_combo(&mut self, ui: &mut egui::Ui) {
-        if let Some(profile) = self.active_installation() {
-            ui.label(format!(
-                "{} · {}",
-                profile.minecraft,
-                profile.loader.label()
-            ));
-            return;
-        }
-        let selected = self
-            .selected()
-            .map(|v| v.id.clone())
-            .unwrap_or_else(|| "Cargando catálogo…".into());
-        ui.add_enabled_ui(!self.busy, |ui| {
-            egui::ComboBox::from_id_salt("game_version")
-                .width(150.0)
-                .selected_text(selected)
-                .height(300.0)
-                .show_ui(ui, |ui| {
-                    for v in &self.manifest.versions {
-                        ui.selectable_value(&mut self.settings.selected, v.id.clone(), &v.id);
-                    }
-                });
-        });
     }
 
     fn versions(&mut self, ui: &mut egui::Ui) {
@@ -742,21 +535,12 @@ impl Launcher {
                             );
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                 if ui
-                                    .add_enabled(
-                                        !self.busy,
-                                        egui::Button::new(
-                                            if self.settings.selected == version.id {
-                                                "Seleccionada"
-                                            } else {
-                                                "Elegir"
-                                            },
-                                        ),
-                                    )
+                                    .add_enabled(!self.busy, egui::Button::new("Crear instancia"))
                                     .clicked()
                                 {
-                                    self.settings.selected = version.id.clone();
-                                    self.settings.active_installation.clear();
-                                    self.save_settings();
+                                    self.open_create();
+                                    self.new_minecraft = version.id.clone();
+                                    self.new_loader = Loader::Vanilla;
                                     self.page = Page::Home;
                                 }
                                 if installed {
@@ -770,111 +554,6 @@ impl Launcher {
         if matches.is_empty() {
             ui.label("No hay versiones que coincidan. Conéctate para descargar el catálogo.");
         }
-    }
-
-    fn profiles_page(&mut self, ui: &mut egui::Ui) {
-        title(ui, "Tus perfiles. Tus mods.", "Crea instalaciones independientes o usa los clientes que ya instalaron tus modloaders.");
-        egui::ScrollArea::vertical().id_salt("profiles_page").show(ui, |ui| {
-            card().show(ui, |ui| {
-                ui.set_min_width(ui.available_width());
-                ui.label(RichText::new("Crear perfil").size(18.0).strong());
-                let before = (self.new_loader, self.new_minecraft.clone());
-                ui.add_enabled_ui(!self.busy, |ui| {
-                    ui.horizontal_wrapped(|ui| {
-                        ui.add(egui::TextEdit::singleline(&mut self.new_profile_name).hint_text("Nombre del perfil").desired_width(185.0));
-                        egui::ComboBox::from_id_salt("profile_mc").width(140.0).height(280.0).selected_text(if self.new_minecraft.is_empty() { "Minecraft" } else { &self.new_minecraft }).show_ui(ui, |ui| {
-                            for version in &self.manifest.versions { ui.selectable_value(&mut self.new_minecraft, version.id.clone(), &version.id); }
-                        });
-                        egui::ComboBox::from_id_salt("profile_loader").width(115.0).selected_text(self.new_loader.label()).show_ui(ui, |ui| {
-                            for loader in Loader::ALL { ui.selectable_value(&mut self.new_loader, loader, loader.label()); }
-                        });
-                    });
-                });
-                if before != (self.new_loader, self.new_minecraft.clone()) {
-                    self.loader_versions.clear(); self.new_loader_version.clear(); self.loader_query = None;
-                }
-                if self.new_loader != Loader::Vanilla {
-                    ui.horizontal_wrapped(|ui| {
-                        if ui.add_enabled(!self.busy && !self.settings.offline && !self.new_minecraft.is_empty(), egui::Button::new("Consultar versiones compatibles")).clicked() {
-                            let loader = self.new_loader;
-                            let minecraft = self.new_minecraft.clone();
-                            self.status = format!("Buscando {} para Minecraft {}…", loader.label(), minecraft);
-                            self.work(move |tx| { let list = profiles::loader_versions(loader, &minecraft)?; tx.send(Event::LoaderVersions(loader, minecraft, list))?; Ok(()) });
-                        }
-                        ui.add_enabled_ui(!self.busy, |ui| {
-                            egui::ComboBox::from_id_salt("loader_version").width(230.0).height(240.0).selected_text(if self.new_loader_version.is_empty() { "Versión del cargador" } else { &self.new_loader_version }).show_ui(ui, |ui| {
-                                for version in &self.loader_versions { ui.selectable_value(&mut self.new_loader_version, version.clone(), version); }
-                            });
-                        });
-                    });
-                    ui.label(RichText::new("Los mods se añaden como archivos .jar a la carpeta mods de este perfil. Fabric API se instala como un mod cuando tus mods lo necesiten.").size(12.0).color(MUTED));
-                }
-                let compatible = self.new_loader == Loader::Vanilla || self.loader_query.as_ref().is_some_and(|(l, mc)| *l == self.new_loader && mc == &self.new_minecraft) && !self.new_loader_version.is_empty();
-                ui.horizontal_wrapped(|ui| {
-                    if ui.add_enabled(!self.busy && !self.settings.offline && !self.new_minecraft.is_empty() && !self.new_profile_name.trim().is_empty() && compatible, primary("Crear e instalar perfil")).clicked() {
-                        let request = ProfileRequest { name: self.new_profile_name.clone(), minecraft: self.new_minecraft.clone(), loader: self.new_loader, loader_version: self.new_loader_version.clone() };
-                        let root = self.root.clone(); let settings = self.settings.clone();
-                        self.work(move |tx| { profiles::create(&root, &request, &settings, &tx)?; Ok(()) });
-                    }
-                    if ui.add_enabled(!self.busy && !self.settings.offline, egui::Button::new("Instalar Forge/NeoForge desde .jar")).clicked() {
-                        if let Some(path) = rfd::FileDialog::new().add_filter("Instalador de modloader", &["jar"]).pick_file() {
-                            let root = self.root.clone(); let settings = self.settings.clone();
-                            let name = if self.new_profile_name.trim().is_empty() { "Cliente con mods".into() } else { self.new_profile_name.clone() };
-                            self.work(move |tx| { profiles::install_local_jar(&root, &path, &name, &settings, &tx)?; Ok(()) });
-                        }
-                    }
-                });
-                if self.settings.offline { ui.label(RichText::new("Desactiva Jugar sin conexión para descargar e instalar un perfil nuevo.").size(12.0).color(MINT)); }
-            });
-            card().show(ui, |ui| {
-                ui.set_min_width(ui.available_width());
-                ui.label(RichText::new("Clientes de otros instaladores").size(18.0).strong());
-                ui.label(RichText::new("Luma detecta las instalaciones de su carpeta y del launcher oficial. También puedes elegir otra carpeta .minecraft.").size(12.0).color(MUTED));
-                ui.horizontal_wrapped(|ui| {
-                    if ui.add_enabled(!self.busy, egui::Button::new("Detectar perfiles")).clicked() { self.scan_profiles(None); }
-                    if ui.add_enabled(!self.busy, egui::Button::new("Elegir carpeta .minecraft…")).clicked() {
-                        if let Some(path) = rfd::FileDialog::new().set_title("Carpeta con versions, libraries y launcher_profiles.json").pick_folder() { self.scan_profiles(Some(path)); }
-                    }
-                    if ui.button("Carpeta de Luma para instaladores").clicked() {
-                        let result = (|| -> anyhow::Result<()> {
-                            std::fs::create_dir_all(self.root.join("versions"))?;
-                            let path = self.root.join("launcher_profiles.json");
-                            if !path.exists() { model::write_json(&path, &serde_json::json!({"profiles":{}}))?; }
-                            Ok(())
-                        })();
-                        if let Err(error) = result { self.error = Some(error.to_string()); } else { self.open_path(self.root.clone()); }
-                    }
-                });
-                ui.label(RichText::new("Si ejecutas un instalador aparte, selecciona la carpeta de Luma como destino. El perfil aparecerá automáticamente al terminar.").size(11.0).color(MUTED));
-            });
-            ui.label(RichText::new(format!("TUS INSTALACIONES · {}", self.installations.len())).size(11.0).color(MUTED));
-            if self.installations.is_empty() { ui.label("Crea tu primer perfil arriba o detecta un cliente que ya tengas instalado."); }
-            for profile in self.installations.clone() {
-                card().show(ui, |ui| {
-                    ui.set_min_width(ui.available_width());
-                    ui.horizontal_wrapped(|ui| {
-                        ui.label(RichText::new(&profile.name).size(18.0).strong());
-                        ui.label(RichText::new(format!("{} · {}", profile.loader.label(), profile.minecraft)).size(12.0).color(MINT));
-                        if self.settings.active_installation == profile.id { ui.label(RichText::new("Seleccionado").size(11.0).color(MINT)); }
-                    });
-                    ui.label(RichText::new(&profile.version_id).size(11.0).color(MUTED));
-                    ui.label(RichText::new(profile.game_dir.display().to_string()).size(11.0).color(MUTED));
-                    ui.horizontal_wrapped(|ui| {
-                        if ui.add_enabled(!self.busy, primary("Usar perfil")).clicked() {
-                            self.settings.active_installation = profile.id.clone(); self.settings.selected = profile.version_id.clone(); self.save_settings(); self.page = Page::Home;
-                        }
-                        if ui.button("Abrir carpeta").clicked() {
-                            if let Err(error) = std::fs::create_dir_all(&profile.game_dir) { self.error = Some(error.to_string()); } else { self.open_path(profile.game_dir.clone()); }
-                        }
-                        if profile.loader != Loader::Vanilla && ui.button("Abrir mods").clicked() {
-                            let mods = profile.game_dir.join("mods");
-                            if let Err(error) = std::fs::create_dir_all(&mods) { self.error = Some(error.to_string()); } else { self.open_path(mods); }
-                        }
-                        if ui.add_enabled(!self.busy, egui::Button::new("Renombrar")).clicked() { self.rename_profile = Some((profile.id, profile.name)); }
-                    });
-                });
-            }
-        });
     }
 
     fn settings_page(&mut self, ui: &mut egui::Ui) {
@@ -1003,7 +682,10 @@ impl eframe::App for Launcher {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Captura únicamente el framebuffer de Luma para verificar su diseño.
         if let Ok(path) = std::env::var("LUMA_PREVIEW") {
-            if ctx.cumulative_pass_nr() == 3 {
+            if !self.preview_requested
+                && self.preview_started.elapsed() >= Duration::from_millis(500)
+            {
+                self.preview_requested = true;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
             }
             let screenshot = ctx.input(|input| {
@@ -1039,12 +721,14 @@ impl eframe::App for Launcher {
             self.scan_profiles(None);
             self.error = previous_error;
         }
+        self.drive_loader_query(ctx);
+        self.topbar(ctx);
         self.sidebar(ctx);
         egui::TopBottomPanel::bottom("status")
             .frame(
                 egui::Frame::new()
                     .fill(PANEL)
-                    .inner_margin(egui::Margin::symmetric(24, 14)),
+                    .inner_margin(egui::Margin::symmetric(20, 9)),
             )
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
@@ -1064,8 +748,9 @@ impl eframe::App for Launcher {
                     );
                 }
             });
+        self.context_panel(ctx);
         egui::CentralPanel::default()
-            .frame(egui::Frame::new().fill(BG).inner_margin(28.0))
+            .frame(egui::Frame::new().fill(BG).inner_margin(24.0))
             .show(ctx, |ui| {
                 if let Some(error) = self.error.clone() {
                     egui::Frame::new()
@@ -1130,6 +815,7 @@ impl eframe::App for Launcher {
                     );
                 });
         }
+        self.instance_windows(ctx);
         if let Some((id, mut name)) = self.rename_profile.clone() {
             egui::Window::new("Renombrar perfil")
                 .collapsible(false)
@@ -1187,15 +873,6 @@ fn title(ui: &mut egui::Ui, heading: &str, description: &str) {
     ui.add_space(18.0);
 }
 
-fn stat(ui: &mut egui::Ui, heading: &str, value: &str, description: &str) {
-    card().show(ui, |ui| {
-        ui.set_min_width(ui.available_width());
-        ui.label(RichText::new(heading).size(9.0).color(MUTED));
-        ui.label(RichText::new(value).size(23.0).strong());
-        ui.label(RichText::new(description).size(11.0).color(MUTED));
-    });
-}
-
 fn kind(value: &str) -> &str {
     match value {
         "release" => "RELEASE",
@@ -1204,139 +881,4 @@ fn kind(value: &str) -> &str {
         "old_alpha" => "ALPHA",
         _ => value,
     }
-}
-
-fn landscape(ui: &mut egui::Ui) {
-    let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 240.0), Sense::hover());
-    let painter = ui.painter().with_clip_rect(rect);
-    painter.rect_filled(rect, CornerRadius::same(14), Color32::from_rgb(20, 43, 54));
-    let point = |x: f32, y: f32| {
-        Pos2::new(
-            rect.left() + x * rect.width(),
-            rect.top() + y * rect.height(),
-        )
-    };
-    for i in 0..48 {
-        let x = ((i * 137 + 41) % 997) as f32 / 997.0;
-        let y = ((i * 79 + 17) % 251) as f32 / 600.0;
-        painter.circle_filled(
-            point(x, y),
-            if i % 4 == 0 { 1.4 } else { 0.8 },
-            Color32::from_rgba_unmultiplied(181, 224, 221, 95),
-        );
-    }
-    painter.circle_filled(point(0.78, 0.23), 28.0, Color32::from_rgb(191, 220, 201));
-    painter.circle_filled(point(0.795, 0.20), 25.0, Color32::from_rgb(20, 43, 54));
-    for (points, color) in [
-        (
-            vec![
-                (0., 0.70),
-                (0.13, 0.37),
-                (0.22, 0.55),
-                (0.40, 0.26),
-                (0.58, 0.65),
-                (0.73, 0.42),
-                (0.90, 0.59),
-                (1., 0.35),
-                (1., 1.),
-                (0., 1.),
-            ],
-            Color32::from_rgb(33, 67, 76),
-        ),
-        (
-            vec![
-                (0., 0.85),
-                (0.18, 0.58),
-                (0.35, 0.80),
-                (0.54, 0.48),
-                (0.73, 0.82),
-                (0.90, 0.55),
-                (1., 0.76),
-                (1., 1.),
-                (0., 1.),
-            ],
-            Color32::from_rgb(31, 83, 79),
-        ),
-    ] {
-        for pair in points[..points.len() - 2].windows(2) {
-            let (x1, y1) = pair[0];
-            let (x2, y2) = pair[1];
-            painter.add(egui::Shape::convex_polygon(
-                vec![point(x1, y1), point(x2, y2), point(x2, 1.0), point(x1, 1.0)],
-                color,
-                Stroke::NONE,
-            ));
-        }
-    }
-    // Siluetas por escalones: paisaje original dibujado en tiempo real.
-    for i in 0..32 {
-        let x = i as f32 / 31.0;
-        let h = 0.10 + ((i * 17 + 5) % 11) as f32 * 0.009;
-        let base = 0.86 + (x * 11.0).sin() * 0.045;
-        let trunk = Rect::from_min_max(point(x, base - h * 0.5), point(x + 0.005, base + 0.08));
-        painter.rect_filled(trunk, 0.0, Color32::from_rgb(17, 42, 41));
-        for level in 0..3 {
-            let y = base - h + level as f32 * h * 0.25;
-            let half = 0.010 + level as f32 * 0.004;
-            painter.rect_filled(
-                Rect::from_min_max(point(x - half, y), point(x + half, y + h * 0.40)),
-                0.0,
-                Color32::from_rgb(22, 56, 50),
-            );
-        }
-    }
-    painter.rect_filled(
-        Rect::from_min_max(point(0., 0.94), point(1., 1.)),
-        0.0,
-        Color32::from_rgb(18, 37, 37),
-    );
-    // Cabaña iluminada en la orilla del bosque.
-    painter.rect_filled(
-        Rect::from_min_max(point(0.74, 0.80), point(0.84, 0.95)),
-        0.0,
-        Color32::from_rgb(77, 68, 51),
-    );
-    painter.rect_filled(
-        Rect::from_min_max(point(0.73, 0.77), point(0.85, 0.81)),
-        0.0,
-        Color32::from_rgb(37, 45, 42),
-    );
-    painter.rect_filled(
-        Rect::from_min_max(point(0.75, 0.84), point(0.77, 0.88)),
-        1.0,
-        Color32::from_rgb(249, 201, 116),
-    );
-    painter.rect_filled(
-        Rect::from_min_max(point(0.80, 0.84), point(0.82, 0.88)),
-        1.0,
-        Color32::from_rgb(249, 201, 116),
-    );
-    // Placa oscura mantiene legibles los textos sin tapar el paisaje.
-    let plaque = Rect::from_min_max(point(0.025, 0.24), point(0.55, 0.86));
-    painter.rect_filled(
-        plaque,
-        12.0,
-        Color32::from_rgba_unmultiplied(13, 25, 32, 215),
-    );
-    painter.text(
-        point(0.05, 0.32),
-        egui::Align2::LEFT_TOP,
-        "EXPLORA. CONSTRUYE. VUELVE.",
-        FontId::proportional(10.0),
-        MINT,
-    );
-    painter.text(
-        point(0.05, 0.43),
-        egui::Align2::LEFT_TOP,
-        "Tu mundo,\na tu ritmo.",
-        FontId::proportional(38.0),
-        TEXT,
-    );
-    painter.text(
-        point(0.05, 0.78),
-        egui::Align2::LEFT_TOP,
-        "Una nueva aventura te espera.",
-        FontId::proportional(12.0),
-        Color32::from_rgb(174, 199, 199),
-    );
 }
