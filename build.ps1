@@ -24,8 +24,15 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'La compilación no se completó.' }
     $output = Join-Path $projectRoot 'artifacts'
     New-Item -ItemType Directory -Force -Path $output | Out-Null
-    Copy-Item -LiteralPath (Join-Path $projectRoot "target\$Profile\luma-launcher.exe") -Destination (Join-Path $output 'Luma.exe') -Force
-    Write-Output "Listo: $output\Luma.exe"
+    $packageVersion = [regex]::Match([System.IO.File]::ReadAllText((Join-Path $projectRoot 'Cargo.toml')), '(?m)^version = "([^"]+)"').Groups[1].Value
+    $versionedExe = Join-Path $output "Luma-$packageVersion.exe"
+    Copy-Item -LiteralPath (Join-Path $projectRoot "target\$Profile\luma-launcher.exe") -Destination $versionedExe -Force
+    try {
+        Copy-Item -LiteralPath $versionedExe -Destination (Join-Path $output 'Luma.exe') -Force
+    } catch {
+        Write-Output 'Luma.exe está en uso o no se pudo reemplazar. Utiliza el ejecutable con número de versión.'
+    }
+    Write-Output "Listo: $versionedExe"
 }
 finally {
     $env:LUMA_MICROSOFT_CLIENT_ID = $originalMicrosoftClientId

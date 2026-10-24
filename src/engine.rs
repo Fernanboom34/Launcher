@@ -43,7 +43,7 @@ pub fn catalog(root: &Path, tx: &Sender<Event>) -> Result<()> {
     Ok(())
 }
 
-fn path_under(root: &Path, relative: &str) -> Result<PathBuf> {
+pub(crate) fn path_under(root: &Path, relative: &str) -> Result<PathBuf> {
     let path = Path::new(relative);
     anyhow::ensure!(
         !path.is_absolute() && path.components().all(|c| matches!(c, Component::Normal(_))),
@@ -161,6 +161,162 @@ pub struct Installation {
     pub game: PathBuf,
 }
 
+/// Resolve vanilla parents before applying loader overrides. The client jar stays
+/// attached to its vanilla version; a loader generally doesn't have its own jar.
+pub fn resolve_metadata(root: &Path, version: &Version, offline: bool) -> Result<Value> {
+    let client = net::client()?;
+    let manifest: Manifest = model::read_json(&root.join("manifest.json"))
+        .or_else(|_| model::read_json(&model::root().join("manifest.json")))
+        .unwrap_or_default();
+    fn visit(
+        root: &Path,
+        version: &Version,
+        manifest: &Manifest,
+        client: &reqwest::blocking::Client,
+        offline: bool,
+        stack: &mut Vec<String>,
+    ) -> Result<Value> {
+        model::safe_component(&version.id)?;
+        anyhow::ensure!(
+            stack.len() < 16 && !stack.contains(&version.id),
+            "Herencia circular o demasiado profunda en {}",
+            version.id
+        );
+        stack.push(version.id.clone());
+        let path = root
+            .join("versions")
+            .join(&version.id)
+            .join(format!("{}.json", version.id));
+        if !version.url.is_empty() {
+            net::download(client, &version.url, &path, Some(&version.sha1), offline)?;
+        }
+        let mut value: Value = model::read_json(&path)?;
+        if let Some(parent_id) = value["inheritsFrom"].as_str() {
+            let parent = manifest
+                .versions
+                .iter()
+                .find(|v| v.id == parent_id)
+                .cloned()
+                .unwrap_or_else(|| Version::local(parent_id));
+            let base = visit(root, &parent, manifest, client, offline, stack)?;
+            value = merge_metadata(base, value)?;
+        } else if value.get("jar").is_none() {
+            value["jar"] = Value::String(version.id.clone());
+        }
+        stack.pop();
+        Ok(value)
+    }
+    visit(root, version, &manifest, &client, offline, &mut Vec::new())
+}
+
+pub(crate) fn maven_path(coordinate: &str) -> Result<String> {
+    let (coordinate, extension) = coordinate.split_once('@').unwrap_or((coordinate, "jar"));
+    let parts: Vec<_> = coordinate.split(':').collect();
+    anyhow::ensure!(
+        (3..=4).contains(&parts.len()),
+        "Coordenada Maven inválida: {coordinate}"
+    );
+    for part in &parts {
+        model::safe_component(part)?;
+    }
+    model::safe_component(extension)?;
+    let classifier = parts.get(3).map(|s| format!("-{s}")).unwrap_or_default();
+    Ok(format!(
+        "{}/{}/{}/{}-{}{classifier}.{extension}",
+        parts[0].replace('.', "/"),
+        parts[1],
+        parts[2],
+        parts[1],
+        parts[2]
+    ))
+}
+
+fn library_key(value: &Value) -> String {
+    let name = value["name"].as_str().unwrap_or("");
+    let (coordinate, ext) = name.split_once('@').unwrap_or((name, "jar"));
+    let parts: Vec<_> = coordinate.split(':').collect();
+    if parts.len() >= 3 {
+        format!(
+            "{}:{}:{}@{}",
+            parts[0],
+            parts[1],
+            parts.get(3).unwrap_or(&""),
+            ext
+        )
+    } else {
+        name.into()
+    }
+}
+
+pub(crate) fn merge_metadata(mut parent: Value, child: Value) -> Result<Value> {
+    let parent_object = parent
+        .as_object_mut()
+        .context("Metadatos padre inválidos")?;
+    for (key, value) in child
+        .as_object()
+        .context("Metadatos del loader inválidos")?
+    {
+        match key.as_str() {
+            "libraries" => {
+                let children = value
+                    .as_array()
+                    .context("Bibliotecas del loader inválidas")?;
+                let keys: std::collections::HashSet<_> = children.iter().map(library_key).collect();
+                let mut libraries = children.clone();
+                libraries.extend(
+                    parent_object
+                        .get(key)
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                        .filter(|lib| !keys.contains(&library_key(lib)))
+                        .cloned(),
+                );
+                parent_object.insert(key.clone(), Value::Array(libraries));
+            }
+            "arguments" => {
+                let mut args = parent_object
+                    .get(key)
+                    .cloned()
+                    .unwrap_or(serde_json::json!({}));
+                for (side, extra) in value
+                    .as_object()
+                    .context("Argumentos del loader inválidos")?
+                {
+                    let mut list = args[side].as_array().cloned().unwrap_or_default();
+                    list.extend(
+                        extra
+                            .as_array()
+                            .context("Lista de argumentos inválida")?
+                            .iter()
+                            .cloned(),
+                    );
+                    args[side] = Value::Array(list);
+                }
+                parent_object.insert(key.clone(), args);
+            }
+            "downloads" => {
+                let mut downloads = parent_object
+                    .get(key)
+                    .and_then(Value::as_object)
+                    .cloned()
+                    .unwrap_or_default();
+                downloads.extend(
+                    value
+                        .as_object()
+                        .context("Descargas del loader inválidas")?
+                        .clone(),
+                );
+                parent_object.insert(key.clone(), Value::Object(downloads));
+            }
+            _ => {
+                parent_object.insert(key.clone(), value.clone());
+            }
+        }
+    }
+    Ok(parent)
+}
+
 pub fn prepare(
     root: &Path,
     version: &Version,
@@ -171,26 +327,29 @@ pub fn prepare(
     model::safe_component(&version.id)?;
     let client = net::client()?;
     let dir = root.join("versions").join(&version.id);
-    let metadata_path = dir.join(format!("{}.json", version.id));
     tx.send(Event::Status("Leyendo los archivos de la versión…".into()))?;
-    net::download(
-        &client,
-        &version.url,
-        &metadata_path,
-        Some(&version.sha1),
-        offline,
-    )?;
-    let metadata: Value = model::read_json(&metadata_path)?;
+    let metadata = resolve_metadata(root, version, offline)?;
     let major = metadata["javaVersion"]["majorVersion"]
         .as_u64()
         .unwrap_or(8);
-    let java = java_runtime(root, major, &settings.java, offline, tx)?;
+    let java = java_runtime(&model::root(), major, &settings.java, offline, tx)?;
     let libraries = root.join("libraries");
     let assets_root = root.join("assets");
     let natives = dir.join("natives");
     fs::create_dir_all(&natives)?;
     let mut jobs = BTreeMap::new();
-    let jar = dir.join(format!("{}.jar", version.id));
+    let jar_id = model::safe_component(metadata["jar"].as_str().unwrap_or(&version.id))?;
+    let jar = root
+        .join("versions")
+        .join(jar_id)
+        .join(format!("{jar_id}.jar"));
+    // FML uses ${version_name}.jar in its module ignore list. Present inherited
+    // vanilla clients under the selected version's name, like the official launcher.
+    let classpath_jar = if version.id != jar_id && metadata["inheritsFrom"].is_string() {
+        dir.join(format!("{}.jar", version.id))
+    } else {
+        jar.clone()
+    };
     let client_download = &metadata["downloads"]["client"];
     add_job(
         &mut jobs,
@@ -207,13 +366,41 @@ pub fn prepare(
     let mut native_archives = Vec::new();
     if let Some(libs) = metadata["libraries"].as_array() {
         for lib in libs {
-            if !allows(lib.get("rules")) {
+            if !allows(lib.get("rules")) || lib["clientreq"] == false {
                 continue;
             }
             if let Some(item) = lib["downloads"].get("artifact") {
                 let job = artifact(item, &libraries)?;
                 classpath.push(job.path.clone());
                 add_job(&mut jobs, job);
+            } else if let Some(name) = lib["name"].as_str() {
+                let relative = maven_path(name)?;
+                let path = path_under(&libraries, &relative)?;
+                let base_url = lib["url"]
+                    .as_str()
+                    .unwrap_or("https://libraries.minecraft.net/");
+                let base_url = base_url
+                    .replace(
+                        "http://files.minecraftforge.net/maven",
+                        "https://maven.minecraftforge.net",
+                    )
+                    .replace(
+                        "https://files.minecraftforge.net/maven",
+                        "https://maven.minecraftforge.net",
+                    );
+                let base_url = base_url.replacen("http://", "https://", 1);
+                let url = if base_url.is_empty() {
+                    String::new()
+                } else {
+                    format!("{}/{relative}", base_url.trim_end_matches('/'))
+                };
+                let hash = lib["checksums"]
+                    .as_array()
+                    .and_then(|a| a.first())
+                    .and_then(Value::as_str)
+                    .map(str::to_owned);
+                classpath.push(path.clone());
+                add_job(&mut jobs, Download { url, path, hash });
             }
             if let Some(classifier) = lib["natives"]["windows"].as_str() {
                 let classifier = classifier.replace("${arch}", "64");
@@ -234,7 +421,7 @@ pub fn prepare(
             }
         }
     }
-    classpath.push(jar);
+    classpath.push(classpath_jar.clone());
     if let Some(logging) = metadata["logging"]["client"].get("file") {
         let id = model::safe_component(
             logging["id"]
@@ -314,10 +501,23 @@ pub fn prepare(
                 })
         })?;
     tx.send(Event::Status("Preparando bibliotecas nativas…".into()))?;
+    if classpath_jar != jar {
+        let expected = client_download["sha1"]
+            .as_str()
+            .map(str::to_owned)
+            .unwrap_or(net::sha1_file(&jar)?);
+        if !classpath_jar.is_file() || net::sha1_file(&classpath_jar)? != expected {
+            fs::copy(&jar, &classpath_jar)
+                .context("No se pudo preparar el cliente heredado del cargador")?;
+        }
+    }
     for (archive, excludes) in native_archives {
         extract_zip(&archive, &natives, &excludes)?;
     }
-    let game = root.join("instances").join(&version.id);
+    let game = settings
+        .game_directory
+        .clone()
+        .unwrap_or_else(|| root.join("instances").join(&version.id));
     fs::create_dir_all(&game)?;
     let mut assets = assets_root.clone();
     // Los clientes anteriores a 1.7 usan nombres de archivo en vez de objetos por hash.
@@ -394,7 +594,7 @@ pub fn extract_zip(archive: &Path, destination: &Path, excludes: &[String]) -> R
     Ok(())
 }
 
-fn java_runtime(
+pub(crate) fn java_runtime(
     root: &Path,
     major: u64,
     custom: &str,
@@ -605,8 +805,9 @@ pub fn launch(
     } else {
         command.args(arguments(&metadata["arguments"]["game"], &variables)?);
     }
-    fs::create_dir_all(root.join("logs"))?;
-    let log = fs::File::create(root.join("logs/game-latest.log"))?;
+    let log_root = model::root().join("logs");
+    fs::create_dir_all(&log_root)?;
+    let log = fs::File::create(log_root.join("game-latest.log"))?;
     command
         .stdout(Stdio::from(log.try_clone()?))
         .stderr(Stdio::from(log));
@@ -614,6 +815,12 @@ pub fn launch(
     tx.send(Event::GameStarted)?;
     let status = child.wait()?;
     tx.send(Event::GameExited(status.code()))?;
+    anyhow::ensure!(
+        status.success(),
+        "Minecraft terminó con código {:?}. Revisa {}",
+        status.code(),
+        log_root.join("game-latest.log").display()
+    );
     Ok(())
 }
 
@@ -662,6 +869,58 @@ mod tests {
             vec!["-Dpath=C:/My Games/Minecraft"]
         );
         assert!(expanded("${unknown}", &vars).is_err());
+    }
+
+    #[test]
+    fn loader_inheritance_preserves_base_client_and_overrides_library_versions() {
+        let parent = json!({"id":"1.21.1", "jar":"1.21.1", "mainClass":"Vanilla", "downloads":{"client":{"sha1":"original"}}, "libraries":[{"name":"org.example:shared:1"},{"name":"org.example:shared:1:natives-windows"}], "arguments":{"jvm":["-cp","${classpath}"],"game":["--username","${auth_player_name}"]}});
+        let child = json!({"id":"fabric-test", "inheritsFrom":"1.21.1", "mainClass":"Loader", "libraries":[{"name":"org.example:shared:2"}], "arguments":{"jvm":["-Dloader=true"],"game":["--loader"]}});
+        let merged = merge_metadata(parent, child).unwrap();
+        assert_eq!(merged["jar"], "1.21.1");
+        assert_eq!(merged["downloads"]["client"]["sha1"], "original");
+        assert_eq!(merged["mainClass"], "Loader");
+        assert_eq!(merged["libraries"].as_array().unwrap().len(), 2);
+        assert_eq!(merged["libraries"][0]["name"], "org.example:shared:2");
+        assert_eq!(
+            merged["libraries"][1]["name"],
+            "org.example:shared:1:natives-windows"
+        );
+        assert_eq!(
+            merged["arguments"]["jvm"],
+            json!(["-cp", "${classpath}", "-Dloader=true"])
+        );
+        assert_eq!(
+            merged["arguments"]["game"],
+            json!(["--username", "${auth_player_name}", "--loader"])
+        );
+    }
+
+    #[test]
+    fn maven_coordinates_support_classifiers_and_extensions_but_not_traversal() {
+        assert_eq!(
+            maven_path("net.fabricmc:fabric-loader:0.20.1").unwrap(),
+            "net/fabricmc/fabric-loader/0.20.1/fabric-loader-0.20.1.jar"
+        );
+        assert_eq!(
+            maven_path("net.minecraft:client:1.21.1:mappings@txt").unwrap(),
+            "net/minecraft/client/1.21.1/client-1.21.1-mappings.txt"
+        );
+        assert!(maven_path("evil:../escape:1").is_err());
+        assert!(maven_path("evil:archive:1@../../bad").is_err());
+    }
+
+    #[test]
+    fn circular_local_version_inheritance_is_rejected() {
+        let root = fixture_dir("inheritance-cycle");
+        for (id, parent) in [("a", "b"), ("b", "a")] {
+            model::write_json(
+                &root.join("versions").join(id).join(format!("{id}.json")),
+                &json!({"id":id,"inheritsFrom":parent}),
+            )
+            .unwrap();
+        }
+        let error = resolve_metadata(&root, &Version::local("a"), true).unwrap_err();
+        assert!(error.to_string().contains("circular"));
     }
 
     fn fixture_dir(name: &str) -> PathBuf {
@@ -761,6 +1020,28 @@ mod tests {
             b"sound fixture"
         );
         assert!(version_dir.join("installed.json").is_file());
+        let loader_library = root.join("libraries/local/loader/1.0/loader-1.0.jar");
+        fs::create_dir_all(loader_library.parent().unwrap()).unwrap();
+        fs::write(&loader_library, b"loader fixture").unwrap();
+        model::write_json(&root.join("versions/fabric-test/fabric-test.json"), &json!({"id":"fabric-test","inheritsFrom":"test-1","mainClass":"loader.Main","libraries":[{"name":"local:loader:1.0","url":""}],"arguments":{"game":["--loader"]}})).unwrap();
+        let mod_settings = Settings {
+            game_directory: Some(root.join("instances/mod-profile")),
+            ..settings.clone()
+        };
+        let modded = prepare(
+            &root,
+            &Version::local("fabric-test"),
+            &mod_settings,
+            true,
+            &tx,
+        )
+        .unwrap();
+        assert_eq!(modded.metadata["mainClass"], "loader.Main");
+        assert_eq!(modded.classpath.first(), Some(&loader_library));
+        let alias = root.join("versions/fabric-test/fabric-test.jar");
+        assert_eq!(modded.classpath.last(), Some(&alias));
+        assert_eq!(fs::read(alias).unwrap(), b"client fixture");
+        assert_eq!(modded.game, root.join("instances/mod-profile"));
         fs::write(&object, b"corrupted").unwrap();
         let error = prepare(&root, &version, &settings, true, &tx)
             .err()

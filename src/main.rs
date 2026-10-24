@@ -5,10 +5,29 @@ mod engine;
 mod model;
 mod net;
 mod oauth;
+mod profiles;
 mod ui;
 
 fn main() -> eframe::Result {
     let args: Vec<String> = std::env::args().collect();
+    if args.get(1).is_some_and(|arg| {
+        [
+            "--create-profile",
+            "--list-profiles",
+            "--import-profiles",
+            "--install-loader-jar",
+            "--install-profile",
+            "--verify-profile",
+            "--play-profile",
+        ]
+        .contains(&arg.as_str())
+    }) {
+        if let Err(error) = profiles::cli(&args) {
+            eprintln!("{error:#}");
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
     if args
         .get(1)
         .is_some_and(|a| a == "--install" || a == "--verify" || a == "--play-local")

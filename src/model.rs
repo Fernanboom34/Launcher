@@ -41,6 +41,8 @@ pub struct Settings {
     pub offline: bool,
     pub profile: Option<Profile>,
     pub local_name: String,
+    pub active_installation: String,
+    pub game_directory: Option<PathBuf>,
 }
 
 impl Default for Settings {
@@ -53,6 +55,8 @@ impl Default for Settings {
             offline: false,
             profile: None,
             local_name: "Jugador".into(),
+            active_installation: String::new(),
+            game_directory: None,
         }
     }
 }
@@ -135,6 +139,61 @@ pub struct Version {
     pub release_time: String,
 }
 
+impl Version {
+    pub fn local(id: &str) -> Self {
+        Self {
+            id: id.into(),
+            kind: "custom".into(),
+            url: String::new(),
+            sha1: String::new(),
+            release_time: String::new(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Loader {
+    #[default]
+    Vanilla,
+    Fabric,
+    NeoForge,
+    Forge,
+}
+
+impl Loader {
+    pub const ALL: [Self; 4] = [Self::Vanilla, Self::Fabric, Self::NeoForge, Self::Forge];
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Vanilla => "Vanilla",
+            Self::Fabric => "Fabric",
+            Self::NeoForge => "NeoForge",
+            Self::Forge => "Forge",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GameProfile {
+    pub id: String,
+    pub name: String,
+    pub minecraft: String,
+    pub version_id: String,
+    pub loader: Loader,
+    pub loader_version: String,
+    pub storage_dir: PathBuf,
+    pub game_dir: PathBuf,
+    #[serde(default)]
+    pub imported: bool,
+}
+
+#[derive(Clone)]
+pub struct ProfileRequest {
+    pub name: String,
+    pub minecraft: String,
+    pub loader: Loader,
+    pub loader_version: String,
+}
+
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Manifest {
     pub versions: Vec<Version>,
@@ -154,6 +213,9 @@ pub enum Event {
     AuthLink(String),
     SignedIn(Session),
     Installed(String),
+    Profiles(Vec<GameProfile>),
+    ProfileCreated(GameProfile),
+    LoaderVersions(Loader, String, Vec<String>),
     GameStarted,
     GameExited(Option<i32>),
     Done,
@@ -193,7 +255,7 @@ pub fn safe_component(value: &str) -> Result<&str> {
             && !value.ends_with('.')
             && value
                 .bytes()
-                .all(|c| c.is_ascii_alphanumeric() || b" ._-".contains(&c))
+                .all(|c| c.is_ascii_alphanumeric() || b" ._+-".contains(&c))
             && value != "."
             && value != "..",
         "Identificador de versión no válido"

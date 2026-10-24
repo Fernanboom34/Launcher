@@ -49,7 +49,7 @@ pub fn download(
     }
     anyhow::ensure!(
         url.starts_with("https://"),
-        "Solo se permiten descargas HTTPS"
+        "El archivo {} necesita que se vuelva a ejecutar el instalador del cargador, o su URL no utiliza HTTPS.", target.display()
     );
     fs::create_dir_all(target.parent().context("Ruta de descarga inválida")?)?;
     let part = target.with_extension("part");

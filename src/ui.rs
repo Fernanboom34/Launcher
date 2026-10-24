@@ -1,6 +1,9 @@
 use crate::{
     auth, engine,
-    model::{self, Event, Manifest, Session, Settings, Version},
+    model::{
+        self, Event, GameProfile, Loader, Manifest, ProfileRequest, Session, Settings, Version,
+    },
+    profiles,
 };
 use eframe::egui::{
     self, Align, Color32, CornerRadius, FontId, Layout, Pos2, Rect, RichText, Sense, Stroke, Vec2,
@@ -13,7 +16,7 @@ use std::{
         mpsc::{self, Receiver, Sender},
         Arc,
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 const BG: Color32 = Color32::from_rgb(13, 17, 24);
@@ -27,6 +30,7 @@ const MINT: Color32 = Color32::from_rgb(129, 232, 181);
 enum Page {
     Home,
     Versions,
+    Profiles,
     Settings,
     Activity,
 }
@@ -52,6 +56,15 @@ pub struct Launcher {
     game_running: bool,
     cache: bool,
     official: Vec<model::Profile>,
+    installations: Vec<GameProfile>,
+    new_profile_name: String,
+    new_minecraft: String,
+    new_loader: Loader,
+    new_loader_version: String,
+    loader_versions: Vec<String>,
+    loader_query: Option<(Loader, String)>,
+    rename_profile: Option<(String, String)>,
+    next_profile_scan: Instant,
 }
 
 impl Launcher {
@@ -94,8 +107,16 @@ impl Launcher {
         if settings.profile.is_none() {
             settings.profile = model::Profile::offline(&settings.local_name).ok();
         }
-        let manifest =
+        let manifest: Manifest =
             model::read_json::<Manifest>(&root.join("manifest.json")).unwrap_or_default();
+        let new_minecraft = manifest
+            .versions
+            .iter()
+            .find(|v| v.id == settings.selected)
+            .or_else(|| manifest.versions.iter().find(|v| v.kind == "release"))
+            .map(|v| v.id.clone())
+            .unwrap_or_default();
+        let installations = profiles::load(&root).unwrap_or_default();
         let installed = std::fs::read_dir(root.join("versions"))
             .into_iter()
             .flatten()
@@ -114,6 +135,7 @@ impl Launcher {
             rx,
             page: match std::env::var("LUMA_PREVIEW_PAGE").as_deref() {
                 Ok("versions") => Page::Versions,
+                Ok("profiles") => Page::Profiles,
                 Ok("settings") => Page::Settings,
                 Ok("activity") => Page::Activity,
                 _ => Page::Home,
@@ -130,6 +152,15 @@ impl Launcher {
             game_running: false,
             cache: false,
             official: auth::official_profiles(),
+            installations,
+            new_profile_name: "Mi perfil".into(),
+            new_minecraft,
+            new_loader: Loader::Vanilla,
+            new_loader_version: String::new(),
+            loader_versions: Vec::new(),
+            loader_query: None,
+            rename_profile: None,
+            next_profile_scan: Instant::now() + Duration::from_secs(10),
         };
         if app.settings.offline || std::env::var_os("LUMA_PREVIEW").is_some() {
             app.cache = true;
@@ -170,7 +201,29 @@ impl Launcher {
     fn refresh(&mut self) {
         let root = self.root.clone();
         self.status = "Actualizando el catálogo de Mojang…".into();
-        self.work(move |tx| engine::catalog(&root, &tx));
+        self.work(move |tx| {
+            engine::catalog(&root, &tx)?;
+            tx.send(Event::Profiles(profiles::discover(&root, None)?))?;
+            Ok(())
+        });
+    }
+
+    fn active_installation(&self) -> Option<&GameProfile> {
+        self.installations
+            .iter()
+            .find(|p| p.id == self.settings.active_installation)
+    }
+
+    fn scan_profiles(&mut self, extra: Option<PathBuf>) {
+        let root = self.root.clone();
+        self.next_profile_scan = Instant::now() + Duration::from_secs(10);
+        self.work(move |tx| {
+            tx.send(Event::Profiles(profiles::discover(
+                &root,
+                extra.as_deref(),
+            )?))?;
+            Ok(())
+        });
     }
 
     fn selected(&self) -> Option<&Version> {
@@ -182,7 +235,18 @@ impl Launcher {
     }
 
     fn run(&mut self, play: bool) {
-        let Some(version) = self.selected().cloned() else {
+        let installation = self.active_installation().cloned();
+        let version = if let Some(profile) = &installation {
+            match profiles::launch_version(profile) {
+                Ok(v) => v,
+                Err(error) => {
+                    self.error = Some(error.to_string());
+                    return;
+                }
+            }
+        } else if let Some(version) = self.selected().cloned() {
+            version
+        } else {
             return;
         };
         self.settings.selected = version.id.clone();
@@ -203,8 +267,12 @@ impl Launcher {
         } else {
             None
         };
-        let root = self.root.clone();
-        let settings = self.settings.clone();
+        let root = installation
+            .as_ref()
+            .map(|p| p.storage_dir.clone())
+            .unwrap_or_else(|| self.root.clone());
+        let mut settings = self.settings.clone();
+        settings.game_directory = installation.map(|p| p.game_dir);
         self.work(move |tx| {
             let installation = engine::prepare(&root, &version, &settings, offline, &tx)?;
             if let Some((profile, token)) = identity {
@@ -236,6 +304,15 @@ impl Launcher {
                 Event::Progress(done, total) => self.progress = Some((done, total)),
                 Event::Catalog(manifest, cached) => {
                     self.manifest = manifest;
+                    if self.new_minecraft.is_empty() {
+                        self.new_minecraft = self
+                            .manifest
+                            .versions
+                            .iter()
+                            .find(|v| v.kind == "release")
+                            .map(|v| v.id.clone())
+                            .unwrap_or_default();
+                    }
                     self.cache = cached;
                     if self.settings.selected.is_empty() {
                         if let Some(version) = self.selected() {
@@ -259,6 +336,19 @@ impl Launcher {
                 }
                 Event::Installed(id) => {
                     self.installed.insert(id);
+                }
+                Event::Profiles(list) => self.installations = list,
+                Event::ProfileCreated(profile) => {
+                    self.settings.active_installation = profile.id;
+                    self.settings.selected = profile.version_id;
+                    self.save_settings();
+                }
+                Event::LoaderVersions(loader, minecraft, versions) => {
+                    if self.new_loader == loader && self.new_minecraft == minecraft {
+                        self.new_loader_version = versions.first().cloned().unwrap_or_default();
+                        self.loader_versions = versions;
+                        self.loader_query = Some((loader, minecraft));
+                    }
                 }
                 Event::GameStarted => {
                     self.game_running = true;
@@ -320,6 +410,7 @@ impl Launcher {
                 for (page, label) in [
                     (Page::Home, "Inicio"),
                     (Page::Versions, "Versiones"),
+                    (Page::Profiles, "Perfiles y mods"),
                     (Page::Settings, "Ajustes"),
                     (Page::Activity, "Actividad"),
                 ] {
@@ -412,6 +503,45 @@ impl Launcher {
         });
         card().show(ui, |ui| {
             ui.horizontal(|ui| {
+                ui.label(RichText::new("Instalación").size(12.0).color(MUTED));
+                let selected = self
+                    .active_installation()
+                    .map(|p| format!("{} · {}", p.name, p.loader.label()))
+                    .unwrap_or_else(|| "Vanilla · selección rápida".into());
+                let before = self.settings.active_installation.clone();
+                ui.add_enabled_ui(!self.busy, |ui| {
+                    egui::ComboBox::from_id_salt("active_installation")
+                        .width(300.0)
+                        .selected_text(selected)
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut self.settings.active_installation,
+                                String::new(),
+                                "Vanilla · selección rápida",
+                            );
+                            for profile in &self.installations {
+                                ui.selectable_value(
+                                    &mut self.settings.active_installation,
+                                    profile.id.clone(),
+                                    format!(
+                                        "{} · {} · {}",
+                                        profile.name,
+                                        profile.loader.label(),
+                                        profile.minecraft
+                                    ),
+                                );
+                            }
+                        });
+                });
+                if before != self.settings.active_installation {
+                    self.save_settings();
+                }
+                if ui.button("Gestionar perfiles").clicked() {
+                    self.page = Page::Profiles;
+                }
+            });
+            ui.separator();
+            ui.horizontal(|ui| {
                 ui.label(
                     RichText::new("Nombre para jugar sin cuenta")
                         .size(12.0)
@@ -424,7 +554,7 @@ impl Launcher {
                         .char_limit(16),
                 );
                 if ui
-                    .add_enabled(!self.busy, egui::Button::new("Usar perfil local"))
+                    .add_enabled(!self.busy, egui::Button::new("Usar nombre"))
                     .clicked()
                 {
                     match model::Profile::offline(&self.settings.local_name) {
@@ -459,7 +589,8 @@ impl Launcher {
                     }
                 });
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    let ready = self.selected().is_some() && !self.busy;
+                    let ready = (self.selected().is_some() || self.active_installation().is_some())
+                        && !self.busy;
                     if ui
                         .add_enabled(
                             ready,
@@ -510,6 +641,14 @@ impl Launcher {
     }
 
     fn version_combo(&mut self, ui: &mut egui::Ui) {
+        if let Some(profile) = self.active_installation() {
+            ui.label(format!(
+                "{} · {}",
+                profile.minecraft,
+                profile.loader.label()
+            ));
+            return;
+        }
         let selected = self
             .selected()
             .map(|v| v.id.clone())
@@ -616,6 +755,7 @@ impl Launcher {
                                     .clicked()
                                 {
                                     self.settings.selected = version.id.clone();
+                                    self.settings.active_installation.clear();
                                     self.save_settings();
                                     self.page = Page::Home;
                                 }
@@ -630,6 +770,111 @@ impl Launcher {
         if matches.is_empty() {
             ui.label("No hay versiones que coincidan. Conéctate para descargar el catálogo.");
         }
+    }
+
+    fn profiles_page(&mut self, ui: &mut egui::Ui) {
+        title(ui, "Tus perfiles. Tus mods.", "Crea instalaciones independientes o usa los clientes que ya instalaron tus modloaders.");
+        egui::ScrollArea::vertical().id_salt("profiles_page").show(ui, |ui| {
+            card().show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+                ui.label(RichText::new("Crear perfil").size(18.0).strong());
+                let before = (self.new_loader, self.new_minecraft.clone());
+                ui.add_enabled_ui(!self.busy, |ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.add(egui::TextEdit::singleline(&mut self.new_profile_name).hint_text("Nombre del perfil").desired_width(185.0));
+                        egui::ComboBox::from_id_salt("profile_mc").width(140.0).height(280.0).selected_text(if self.new_minecraft.is_empty() { "Minecraft" } else { &self.new_minecraft }).show_ui(ui, |ui| {
+                            for version in &self.manifest.versions { ui.selectable_value(&mut self.new_minecraft, version.id.clone(), &version.id); }
+                        });
+                        egui::ComboBox::from_id_salt("profile_loader").width(115.0).selected_text(self.new_loader.label()).show_ui(ui, |ui| {
+                            for loader in Loader::ALL { ui.selectable_value(&mut self.new_loader, loader, loader.label()); }
+                        });
+                    });
+                });
+                if before != (self.new_loader, self.new_minecraft.clone()) {
+                    self.loader_versions.clear(); self.new_loader_version.clear(); self.loader_query = None;
+                }
+                if self.new_loader != Loader::Vanilla {
+                    ui.horizontal_wrapped(|ui| {
+                        if ui.add_enabled(!self.busy && !self.settings.offline && !self.new_minecraft.is_empty(), egui::Button::new("Consultar versiones compatibles")).clicked() {
+                            let loader = self.new_loader;
+                            let minecraft = self.new_minecraft.clone();
+                            self.status = format!("Buscando {} para Minecraft {}…", loader.label(), minecraft);
+                            self.work(move |tx| { let list = profiles::loader_versions(loader, &minecraft)?; tx.send(Event::LoaderVersions(loader, minecraft, list))?; Ok(()) });
+                        }
+                        ui.add_enabled_ui(!self.busy, |ui| {
+                            egui::ComboBox::from_id_salt("loader_version").width(230.0).height(240.0).selected_text(if self.new_loader_version.is_empty() { "Versión del cargador" } else { &self.new_loader_version }).show_ui(ui, |ui| {
+                                for version in &self.loader_versions { ui.selectable_value(&mut self.new_loader_version, version.clone(), version); }
+                            });
+                        });
+                    });
+                    ui.label(RichText::new("Los mods se añaden como archivos .jar a la carpeta mods de este perfil. Fabric API se instala como un mod cuando tus mods lo necesiten.").size(12.0).color(MUTED));
+                }
+                let compatible = self.new_loader == Loader::Vanilla || self.loader_query.as_ref().is_some_and(|(l, mc)| *l == self.new_loader && mc == &self.new_minecraft) && !self.new_loader_version.is_empty();
+                ui.horizontal_wrapped(|ui| {
+                    if ui.add_enabled(!self.busy && !self.settings.offline && !self.new_minecraft.is_empty() && !self.new_profile_name.trim().is_empty() && compatible, primary("Crear e instalar perfil")).clicked() {
+                        let request = ProfileRequest { name: self.new_profile_name.clone(), minecraft: self.new_minecraft.clone(), loader: self.new_loader, loader_version: self.new_loader_version.clone() };
+                        let root = self.root.clone(); let settings = self.settings.clone();
+                        self.work(move |tx| { profiles::create(&root, &request, &settings, &tx)?; Ok(()) });
+                    }
+                    if ui.add_enabled(!self.busy && !self.settings.offline, egui::Button::new("Instalar Forge/NeoForge desde .jar")).clicked() {
+                        if let Some(path) = rfd::FileDialog::new().add_filter("Instalador de modloader", &["jar"]).pick_file() {
+                            let root = self.root.clone(); let settings = self.settings.clone();
+                            let name = if self.new_profile_name.trim().is_empty() { "Cliente con mods".into() } else { self.new_profile_name.clone() };
+                            self.work(move |tx| { profiles::install_local_jar(&root, &path, &name, &settings, &tx)?; Ok(()) });
+                        }
+                    }
+                });
+                if self.settings.offline { ui.label(RichText::new("Desactiva Jugar sin conexión para descargar e instalar un perfil nuevo.").size(12.0).color(MINT)); }
+            });
+            card().show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+                ui.label(RichText::new("Clientes de otros instaladores").size(18.0).strong());
+                ui.label(RichText::new("Luma detecta las instalaciones de su carpeta y del launcher oficial. También puedes elegir otra carpeta .minecraft.").size(12.0).color(MUTED));
+                ui.horizontal_wrapped(|ui| {
+                    if ui.add_enabled(!self.busy, egui::Button::new("Detectar perfiles")).clicked() { self.scan_profiles(None); }
+                    if ui.add_enabled(!self.busy, egui::Button::new("Elegir carpeta .minecraft…")).clicked() {
+                        if let Some(path) = rfd::FileDialog::new().set_title("Carpeta con versions, libraries y launcher_profiles.json").pick_folder() { self.scan_profiles(Some(path)); }
+                    }
+                    if ui.button("Carpeta de Luma para instaladores").clicked() {
+                        let result = (|| -> anyhow::Result<()> {
+                            std::fs::create_dir_all(self.root.join("versions"))?;
+                            let path = self.root.join("launcher_profiles.json");
+                            if !path.exists() { model::write_json(&path, &serde_json::json!({"profiles":{}}))?; }
+                            Ok(())
+                        })();
+                        if let Err(error) = result { self.error = Some(error.to_string()); } else { self.open_path(self.root.clone()); }
+                    }
+                });
+                ui.label(RichText::new("Si ejecutas un instalador aparte, selecciona la carpeta de Luma como destino. El perfil aparecerá automáticamente al terminar.").size(11.0).color(MUTED));
+            });
+            ui.label(RichText::new(format!("TUS INSTALACIONES · {}", self.installations.len())).size(11.0).color(MUTED));
+            if self.installations.is_empty() { ui.label("Crea tu primer perfil arriba o detecta un cliente que ya tengas instalado."); }
+            for profile in self.installations.clone() {
+                card().show(ui, |ui| {
+                    ui.set_min_width(ui.available_width());
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(RichText::new(&profile.name).size(18.0).strong());
+                        ui.label(RichText::new(format!("{} · {}", profile.loader.label(), profile.minecraft)).size(12.0).color(MINT));
+                        if self.settings.active_installation == profile.id { ui.label(RichText::new("Seleccionado").size(11.0).color(MINT)); }
+                    });
+                    ui.label(RichText::new(&profile.version_id).size(11.0).color(MUTED));
+                    ui.label(RichText::new(profile.game_dir.display().to_string()).size(11.0).color(MUTED));
+                    ui.horizontal_wrapped(|ui| {
+                        if ui.add_enabled(!self.busy, primary("Usar perfil")).clicked() {
+                            self.settings.active_installation = profile.id.clone(); self.settings.selected = profile.version_id.clone(); self.save_settings(); self.page = Page::Home;
+                        }
+                        if ui.button("Abrir carpeta").clicked() {
+                            if let Err(error) = std::fs::create_dir_all(&profile.game_dir) { self.error = Some(error.to_string()); } else { self.open_path(profile.game_dir.clone()); }
+                        }
+                        if profile.loader != Loader::Vanilla && ui.button("Abrir mods").clicked() {
+                            let mods = profile.game_dir.join("mods");
+                            if let Err(error) = std::fs::create_dir_all(&mods) { self.error = Some(error.to_string()); } else { self.open_path(mods); }
+                        }
+                        if ui.add_enabled(!self.busy, egui::Button::new("Renombrar")).clicked() { self.rename_profile = Some((profile.id, profile.name)); }
+                    });
+                });
+            }
+        });
     }
 
     fn settings_page(&mut self, ui: &mut egui::Ui) {
@@ -786,6 +1031,14 @@ impl eframe::App for Launcher {
             ctx.request_repaint();
         }
         self.events();
+        if !self.busy
+            && Instant::now() >= self.next_profile_scan
+            && std::env::var_os("LUMA_PREVIEW").is_none()
+        {
+            let previous_error = self.error.clone();
+            self.scan_profiles(None);
+            self.error = previous_error;
+        }
         self.sidebar(ctx);
         egui::TopBottomPanel::bottom("status")
             .frame(
@@ -838,6 +1091,7 @@ impl eframe::App for Launcher {
                         egui::ScrollArea::vertical().show(ui, |ui| self.home(ui));
                     }
                     Page::Versions => self.versions(ui),
+                    Page::Profiles => self.profiles_page(ui),
                     Page::Settings => self.settings_page(ui),
                     Page::Activity => self.activity_page(ui),
                 }
@@ -876,6 +1130,31 @@ impl eframe::App for Launcher {
                     );
                 });
         }
+        if let Some((id, mut name)) = self.rename_profile.clone() {
+            egui::Window::new("Renombrar perfil")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
+                .show(ctx, |ui| {
+                    ui.text_edit_singleline(&mut name);
+                    self.rename_profile = Some((id.clone(), name.clone()));
+                    ui.horizontal(|ui| {
+                        if ui.button("Guardar").clicked() {
+                            match profiles::rename(&self.root, &id, &name) {
+                                Ok(list) => {
+                                    self.installations = list;
+                                    self.rename_profile = None;
+                                }
+                                Err(error) => self.error = Some(error.to_string()),
+                            }
+                        }
+                        if ui.button("Cancelar").clicked() {
+                            self.rename_profile = None;
+                        }
+                    });
+                });
+        }
+        ctx.request_repaint_after(Duration::from_secs(10));
         if self.busy {
             ctx.request_repaint_after(Duration::from_millis(100));
         }
