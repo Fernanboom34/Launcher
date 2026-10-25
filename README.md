@@ -1,5 +1,9 @@
 # Luma
 
+## Beta 0.7.1-beta.1
+
+Esta rama integra los arreglos de interacción de Contenido/Mundos y el navegador en un proceso separado para probarlos sin modificar main. Cualquier distribución de esta versión debe marcarse como pre-release. No incluye un instalador nuevo: el Setup 0.7.0 tiene una detección de Defender pendiente y se está preparando su sustitución en `fix/standard-installer`. No se recomienda restaurar cuarentena ni desactivar protecciones. La beta no reemplaza el release estable ni se ofrece como actualización automática a sus usuarios.
+
 Launcher nativo de **Minecraft Java Edition para Windows x64**, escrito en Rust con egui. Biblioteca de instancias, temas y acentos menta, con catálogo de contenido y navegador web integrado.
 
 ## Novedades 0.7.0
