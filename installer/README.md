@@ -6,7 +6,7 @@ La instalacion de archivos, UAC, accesos directos, registro de desinstalacion y 
 
 Pendiente antes de publicar:
 
-- Compilar con Inno Setup 6.4 o posterior y corregir cualquier error del compilador. Todavia no se ha compilado este script.
+- Compilacion Inno Setup y rechazo del release 0.7.0 comprobados en [Actions 40168081216](https://github.com/Fernanboom34/Launcher/actions/runs/40168081216). Esta comprobacion no equivale a una instalacion completa ni a una validacion de Defender en el equipo del usuario.
 - Integrar la opcion de borrar datos del jugador, con confirmacion y limites de rutas, en el contexto del usuario correcto. Actualmente el desinstalador estandar retira solo los archivos de programa; no borra mundos ni cuentas.
 - Migrar el registro de la instalacion antigua y la entrada HKCU de desinstalacion, evitando duplicados y conservando los datos.
 - Revisar el actualizador de Luma para no seguir usando comandos genericos de PowerShell en Program Files. El nuevo Setup no cambia el actualizador del EXE.
