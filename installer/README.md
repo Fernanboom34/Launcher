@@ -10,6 +10,8 @@ Al desinstalar, Setup descarga un helper temporal del mismo release, valida su S
 
 Verificacion: [Actions 40173302914](https://github.com/Fernanboom34/Launcher/actions/runs/40173302914) completo formato, Clippy, pruebas Rust, build MSVC, compilacion Inno y ciclo de instalacion/desinstalacion en una carpeta temporal. Se verifico el hash instalado, migracion de un Setup viejo de fixture y conservacion de un marcador externo. La variante fixture contiene solo el EXE de prueba para ese ciclo, no se publica. El Setup de produccion descarga el app desde internet.
 
+Beta.3: [Actions 40221754955](https://github.com/Fernanboom34/Launcher/actions/runs/40221754955) pasa 52 pruebas regulares y el ciclo nativo por la entrada normal del instalador. Tambien comprueba la retirada legada preservando un archivo desconocido. El EXE MSVC final guarda el mismo Fresh Animations del reporte con SHA1 correcto en una instancia desechable mediante scripts/check-web-download.py.
+
 Limites y pruebas pendientes:
 
 - Revisar el actualizador de Luma para no seguir usando comandos genericos de PowerShell en Program Files. El nuevo Setup no cambia el actualizador del EXE.
