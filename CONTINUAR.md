@@ -6,6 +6,7 @@
 - Finalizados selector MC estable/todas, Fabric estables/builds en creación y edición, navegación sin Biblioteca/Versiones/Actividad, selector skins con modelo estático girable, importar/editar/exportar/eliminar, predeterminadas de internet, API Microsoft de skin/capas, y aplicación local mediante CustomSkinLoader compatible de internet con respaldo/restauración. No se empaquetan JAR ni PNG.
 - CI FINAL40227023522 SUCCESS (54regulares,6ignoradas,Clippy/formato/buildMSVC/Inno y ciclo nativo). Prueba real de descargar/configurar CSL+Steve en NeoForge26.3 desechable PASA. Vista previa del EXE FINAL y ExitCode0 comprobados. **Pendiente manual:** apariencia dentro de Minecraft y operaciones de skin/capa en cuenta Microsoft real; no se ejecutaron cambios remotos en cuentas del usuario. Vanilla requiere elegir un cargador compatible desde Configuración; no se convierte automáticamente.
 - App finalSHA256 **775d43585b5ac1b31d1e72eccb15799a0580e7e555716da1938d9766e8c5427d**,13.752.832bytes. Setup finalSHA256 **a873b9b632075a92c074b2a10fd325eed1fec743beafd0716893e732bf696215**,2.099.392bytes. Main1057f3a intacta; trabajo Linux separado. No apagar PC ni enviar a Microsoft: autorizaciones anteriores siguen igual.
+- Limpieza de cierre: cargo clean retiró otros **1,7GiB** de compilados; target ya no está. Se conservan entregables y capturas de prueba en artifacts. Worktree limpio y rama subida.
 
 Lo siguiente detalla el trabajo y compilaciones previas; la distribución final es la indicada arriba.
 
