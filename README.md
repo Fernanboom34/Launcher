@@ -11,6 +11,8 @@ Launcher nativo de **Minecraft Java Edition para Windows x64**, escrito en Rust 
 - El catálogo de Modrinth filtra por Minecraft y loader, muestra versiones compatibles, descarga desde su CDN y comprueba las sumas de verificación. Instala las dependencias obligatorias y conserva los archivos sustituidos en `.luma/removed`.
 - El navegador web mantiene un destino fijo para la instancia que lo abrió. Mods van a `mods`, resource packs a `resourcepacks`, shaders a `shaderpacks` y datapacks al mundo elegido, en `saves/<mundo>/datapacks`. Las descargas se preparan aparte y solo pasan a su destino cuando se completan y son un JAR/ZIP válido. Cierra el navegador antes de iniciar el juego.
 
+Para cambiar una instalación anterior a Program Files, cierra Luma y ejecuta el instalador nuevo. La actualización desde la aplicación reemplaza el ejecutable en su ubicación actual; no traslada la instalación. No desinstales borrando los datos si quieres conservar tus mundos y cuentas.
+
 Modrinth permite consultas y descargas públicas sin una clave. La API de terceros de CurseForge exige solicitar una clave; esta versión utiliza su página web sin reutilizar claves ajenas. El navegador usa Microsoft Edge WebView2: si falta, se descarga el instalador de Microsoft y se valida su firma antes de ejecutarlo. El runtime compartido de Microsoft puede ser utilizado por otras aplicaciones; el desinstalador de Luma elimina su caché propia, no ese runtime del sistema. Fuentes: [Modrinth](https://docs.modrinth.com/api/) y [CurseForge](https://docs.curseforge.com/rest-api/).
 
 ## Aviso de Windows SmartScreen
@@ -186,7 +188,7 @@ Proyecto independiente, sin afiliación con Mojang o Microsoft. Minecraft es una
 
 En **Contenido**, carga mods, resource packs, shaders o data packs ZIP. Para estos últimos elige el mundo de destino. El interruptor de resource packs modifica la selección en `options.txt`; mods y archivos ZIP desactivados se conservan con `.disabled`. Los packs en carpetas se guardan temporalmente fuera del directorio que examina el juego. Los shaders quedan disponibles o deshabilitados; su selección concreta se realiza con el mod de shaders dentro de Minecraft. No se cambia contenido mientras el juego está en ejecución.
 
-**Quitar contenido** mueve el archivo a `.luma/removed` dentro de la instancia. **Eliminar de la biblioteca** retira su registro y conserva los archivos del juego; **Eliminar completamente…** permite borrar la carpeta de juego de una instancia independiente tras confirmar. Las carpetas de mundos permanecen intactas. **Duplicar** copia la carpeta de juego y mantiene bibliotecas y recursos compartidos.
+**Quitar contenido** mueve el archivo a `.luma/removed` dentro de la instancia y conserva sus mundos. **Eliminar de la biblioteca** retira su registro y conserva los archivos del juego; **Eliminar completamente…** permite borrar la carpeta de juego, incluidos sus mundos, de una instancia independiente tras confirmar. **Duplicar** copia la carpeta de juego y mantiene bibliotecas y recursos compartidos.
 
 Los registros del proceso están en `<instancia>/.luma/logs/game-latest.log`; los que genera Minecraft siguen en `logs/`. La página Registros admite búsqueda, filtros de nivel y archivos históricos `.log`/`.txt`. Se mantiene en pantalla una cola de hasta 512 KiB para no cargar registros enormes.
 
