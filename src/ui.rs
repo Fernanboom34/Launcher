@@ -31,10 +31,7 @@ const MINT: Color32 = Color32::from_rgb(68, 221, 139);
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Page {
     Home,
-    Versions,
-    Profiles,
     Settings,
-    Activity,
     Instance,
     Screenshots,
 }
@@ -55,8 +52,6 @@ pub struct Launcher {
     auth_url: Option<String>,
     auth_cancel: Option<Arc<AtomicBool>>,
     activity: Vec<String>,
-    search: String,
-    category: usize,
     game_running: bool,
     cache: bool,
     official: Vec<model::Profile>,
@@ -167,10 +162,7 @@ impl Launcher {
             tx,
             rx,
             page: match std::env::var("LUMA_PREVIEW_PAGE").as_deref() {
-                Ok("versions") => Page::Versions,
-                Ok("profiles") | Ok("selected") => Page::Profiles,
                 Ok("settings") => Page::Settings,
-                Ok("activity") => Page::Activity,
                 Ok("screenshots") => Page::Screenshots,
                 _ => Page::Home,
             },
@@ -181,8 +173,6 @@ impl Launcher {
             auth_url: None,
             auth_cancel: None,
             activity: Vec::new(),
-            search: String::new(),
-            category: 0,
             game_running: false,
             cache: false,
             official: auth::official_profiles(),
@@ -531,7 +521,7 @@ impl Launcher {
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap_or_default()
                         .as_secs();
-                    self.page = Page::Profiles;
+                    self.page = Page::Home;
                     self.settings.active_installation = profile.id;
                     self.settings.selected = profile.version_id;
                     self.save_settings();
@@ -609,104 +599,6 @@ impl Launcher {
         }
     }
 
-    fn versions(&mut self, ui: &mut egui::Ui) {
-        title(
-            ui,
-            "Todos tus mundos.",
-            "Releases, snapshots y las primeras versiones de Minecraft.",
-        );
-        ui.horizontal(|ui| {
-            ui.add(
-                egui::TextEdit::singleline(&mut self.search)
-                    .hint_text("Buscar versión…")
-                    .desired_width(190.0),
-            );
-            egui::ComboBox::from_id_salt("filter")
-                .selected_text(
-                    ["Todas", "Releases", "Snapshots", "Históricas", "Instaladas"][self.category],
-                )
-                .show_ui(ui, |ui| {
-                    for (index, label) in
-                        ["Todas", "Releases", "Snapshots", "Históricas", "Instaladas"]
-                            .iter()
-                            .enumerate()
-                    {
-                        ui.selectable_value(&mut self.category, index, *label);
-                    }
-                });
-            if ui
-                .add_enabled(!self.busy, egui::Button::new("Actualizar"))
-                .clicked()
-            {
-                self.refresh();
-            }
-        });
-        ui.add_space(8.0);
-        let matches: Vec<Version> = self
-            .manifest
-            .versions
-            .iter()
-            .filter(|v| {
-                v.id.to_lowercase().contains(&self.search.to_lowercase())
-                    && match self.category {
-                        1 => v.kind == "release",
-                        2 => v.kind == "snapshot",
-                        3 => v.kind.starts_with("old_"),
-                        4 => self.installed.contains(&v.id),
-                        _ => true,
-                    }
-            })
-            .cloned()
-            .collect();
-        ui.label(
-            RichText::new(format!("{} versiones", matches.len()))
-                .size(12.0)
-                .color(palette().muted),
-        );
-        egui::ScrollArea::vertical()
-            .id_salt("versions_list")
-            .max_height(ui.available_height() - 75.0)
-            .show_rows(ui, 62.0, matches.len(), |ui, rows| {
-                for index in rows {
-                    let version = &matches[index];
-                    let installed = self.installed.contains(&version.id);
-                    card().inner_margin(12.0).show(ui, |ui| {
-                        ui.set_min_width(ui.available_width());
-                        ui.horizontal(|ui| {
-                            ui.label(RichText::new(&version.id).size(17.0).strong());
-                            ui.label(
-                                RichText::new(kind(&version.kind))
-                                    .size(11.0)
-                                    .color(palette().muted),
-                            );
-                            ui.label(
-                                RichText::new(version.release_time.get(..10).unwrap_or(""))
-                                    .size(11.0)
-                                    .color(palette().muted),
-                            );
-                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                if ui
-                                    .add_enabled(!self.busy, egui::Button::new("Crear instancia"))
-                                    .clicked()
-                                {
-                                    self.open_create();
-                                    self.new_minecraft = version.id.clone();
-                                    self.new_loader = Loader::Vanilla;
-                                    self.page = Page::Home;
-                                }
-                                if installed {
-                                    ui.label(RichText::new("Instalada").size(11.0).color(MINT));
-                                }
-                            });
-                        });
-                    });
-                }
-            });
-        if matches.is_empty() {
-            ui.label("No hay versiones que coincidan. Conéctate para descargar el catálogo.");
-        }
-    }
-
     fn legacy_settings_page(&mut self, ui: &mut egui::Ui) {
         ui.add_space(12.);
         ui.heading("Añadir cuenta Microsoft");
@@ -764,49 +656,7 @@ impl Launcher {
         }
     }
 
-    fn activity_page(&mut self, ui: &mut egui::Ui) {
-        title(
-            ui,
-            "Detrás de la aventura.",
-            "Descargas, instalaciones y estado del juego.",
-        );
-        ui.horizontal(|ui| {
-            if ui.button("Abrir registros").clicked() {
-                let path = self
-                    .active_installation()
-                    .map(|p| p.game_dir.join(".luma/logs"))
-                    .unwrap_or_else(|| self.root.join("logs"));
-                if let Err(e) = std::fs::create_dir_all(&path) {
-                    self.error = Some(e.to_string());
-                } else {
-                    self.open_path(path);
-                }
-            }
-            if ui.button("Limpiar actividad").clicked() {
-                self.activity.clear();
-            }
-        });
-        card().show(ui, |ui| {
-            egui::ScrollArea::vertical()
-                .stick_to_bottom(true)
-                .show(ui, |ui| {
-                    if self.activity.is_empty() {
-                        ui.label(
-                            RichText::new("Todo en calma. Aquí aparecerá la actividad.")
-                                .color(palette().muted),
-                        );
-                    }
-                    for line in &self.activity {
-                        ui.label(
-                            RichText::new(line)
-                                .monospace()
-                                .size(12.0)
-                                .color(palette().muted),
-                        );
-                    }
-                });
-        });
-    }
+
 }
 
 impl eframe::App for Launcher {
@@ -943,12 +793,9 @@ impl eframe::App for Launcher {
                     Page::Home => {
                         egui::ScrollArea::vertical().show(ui, |ui| self.home(ui));
                     }
-                    Page::Versions => self.versions(ui),
-                    Page::Profiles => self.profiles_page(ui),
                     Page::Settings => self.launcher_settings(ui),
                     Page::Instance => self.instance_page(ui),
                     Page::Screenshots => self.screenshots_page(ui),
-                    Page::Activity => self.activity_page(ui),
                 }
             });
         if let Some(url) = self.auth_url.clone() {
@@ -1049,12 +896,4 @@ fn title(ui: &mut egui::Ui, heading: &str, description: &str) {
     ui.add_space(18.0);
 }
 
-fn kind(value: &str) -> &str {
-    match value {
-        "release" => "RELEASE",
-        "snapshot" => "SNAPSHOT",
-        "old_beta" => "BETA",
-        "old_alpha" => "ALPHA",
-        _ => value,
-    }
-}
+

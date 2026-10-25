@@ -71,10 +71,7 @@ impl Launcher {
                     ui.label(
                         RichText::new(match self.page {
                             Page::Home => "Inicio",
-                            Page::Profiles => "Biblioteca",
-                            Page::Versions => "Versiones de Minecraft",
                             Page::Settings => "Ajustes",
-                            Page::Activity => "Actividad",
                             Page::Instance => "Instancia",
                             Page::Screenshots => "Capturas de pantalla",
                         })
@@ -170,9 +167,6 @@ impl Launcher {
             .show(ctx, |ui| {
                 for (page, icon, label) in [
                     (Page::Home, Glyph::Play, "Inicio"),
-                    (Page::Profiles, Glyph::Grid, "Biblioteca de instancias"),
-                    (Page::Versions, Glyph::Download, "Versiones de Minecraft"),
-                    (Page::Activity, Glyph::Activity, "Actividad y descargas"),
                     (Page::Screenshots, Glyph::Image, "Capturas de pantalla"),
                 ] {
                     if art::icon_button(ui, icon, label, self.page == page, true, 48.).clicked() {
@@ -306,10 +300,6 @@ impl Launcher {
     pub(super) fn home(&mut self, ui: &mut egui::Ui) {
         self.library_page(ui, true);
     }
-    pub(super) fn profiles_page(&mut self, ui: &mut egui::Ui) {
-        self.library_page(ui, false);
-    }
-
     fn library_page(&mut self, ui: &mut egui::Ui, show_quick: bool) {
         egui::ScrollArea::vertical()
             .id_salt("library_scroll")
@@ -1499,7 +1489,7 @@ impl Launcher {
                 ..Default::default()
             });
             self.library.create_open = false;
-            self.page = Page::Profiles;
+            self.page = Page::Home;
             let root = self.root.clone();
             let settings = self.settings.clone();
             self.work(move |tx| {

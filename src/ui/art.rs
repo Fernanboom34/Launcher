@@ -5,7 +5,6 @@ pub(super) enum Glyph {
     Play,
     Grid,
     Image,
-    Download,
     Settings,
     Activity,
     Plus,
@@ -49,14 +48,6 @@ pub(super) fn glyph(p: &egui::Painter, rect: Rect, icon: Glyph, color: Color32) 
                     egui::StrokeKind::Inside,
                 );
             }
-        }
-        Glyph::Download => {
-            line((0., -0.95), (0., 0.4));
-            line((-0.5, -0.1), (0., 0.4));
-            line((0., 0.4), (0.5, -0.1));
-            line((-0.8, 0.4), (-0.8, 0.95));
-            line((-0.8, 0.95), (0.8, 0.95));
-            line((0.8, 0.95), (0.8, 0.4));
         }
         Glyph::Settings => {
             p.circle_stroke(c, r * 0.65, s);
