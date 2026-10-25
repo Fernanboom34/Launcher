@@ -65,6 +65,30 @@ Filename: "{app}\Luma.exe"; Description: "Abrir Luma"; Flags: nowait postinstall
 var
   DownloadPage: TDownloadWizardPage;
 
+function DownloadMaintenancePayload: String; forward;
+
+function NativeFileAttributes(const Name: String): LongWord;
+  external 'GetFileAttributesW@kernel32.dll stdcall';
+
+procedure RemoveLegacyProgramFiles(const AppDir: String);
+var
+  Names: TArrayOfString;
+  I: Integer;
+  FileName: String;
+begin
+  // Only exact application files in the fixed install directory. Unknown
+  // content and player data are never recursively deleted by this code.
+  if DirExists(AppDir) and ((NativeFileAttributes(AppDir) and $400) <> 0) then
+    RaiseException('La carpeta de instalacion es un enlace. No se elimino.');
+  Names := ['Luma.exe', 'Luma-Setup.exe', 'Luma.exe.previous', 'Luma.download'];
+  for I := 0 to GetArrayLength(Names) - 1 do begin
+    FileName := AddBackslash(AppDir) + Names[I];
+    if FileExists(FileName) and not DeleteFile(FileName) then
+      RaiseException('No se pudo retirar ' + FileName + '. Cierra Luma y vuelve a intentarlo.');
+  end;
+  RemoveDir(AppDir);
+end;
+
 function ChooseAction: Integer;
 var
   Form: TSetupForm;
@@ -127,15 +151,30 @@ begin
     if ExitCode = 0 then
       RegDeleteKeyIncludingSubkeys(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\Luma');
   end else if Action = mrNo then begin
-    if (not FileExists(AppExe)) or (not FileExists(Uninstaller)) then begin
-      MsgBox('Primero instala esta actualizacion para migrar el desinstalador anterior. Tus datos se conservaran.', mbInformation, MB_OK);
+    try
+      // Use a verified current helper outside every registered application
+      // directory. It also supports portable and pre-Inno installations.
+      AppExe := DownloadMaintenancePayload;
+    except
+      MsgBox('No se pudo preparar la desinstalacion: ' + GetExceptionMessage, mbError, MB_OK);
       Exit;
     end;
-    if not Exec(AppExe, '--manage-uninstall-data', AppDir, SW_SHOWNORMAL, ewWaitUntilTerminated, ExitCode) then begin
+    if not ExecAsOriginalUser(AppExe, '--manage-uninstall-data', ExpandConstant('{tmp}'), SW_SHOWNORMAL, ewWaitUntilTerminated, ExitCode) then begin
       MsgBox('No se pudo abrir la confirmacion de datos. No se ha desinstalado Luma.', mbError, MB_OK);
       Exit;
     end;
     if ExitCode <> 0 then Exit;
+    if not FileExists(Uninstaller) then begin
+      try
+        RemoveLegacyProgramFiles(AppDir);
+        RegDeleteKeyIncludingSubkeys(HKLM, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\Luma');
+        RegDeleteKeyIncludingSubkeys(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\Luma');
+        MsgBox('Se retiraron las copias registradas de Luma y los datos que confirmaste.', mbInformation, MB_OK);
+      except
+        MsgBox(GetExceptionMessage, mbError, MB_OK);
+      end;
+      Exit;
+    end;
     if not ShellExec('runas', Uninstaller, '', AppDir, SW_SHOWNORMAL, ewWaitUntilTerminated, ExitCode) then begin
       MsgBox('No se pudo abrir el desinstalador de la aplicacion.', mbError, MB_OK);
       Exit;
@@ -193,6 +232,42 @@ begin
   Result := (Progress <= 8192) and (ProgressMax <= 8192);
 end;
 
+procedure ResolveRelease(var Url, Hash: String);
+var
+  Raw: AnsiString;
+  Manifest, Version, ExpectedUrl: String;
+  I: Integer;
+begin
+  DownloadTemporaryFile('https://github.com/Fernanboom34/Launcher/releases/download/{#ReleaseTag}/luma-release.json',
+    'luma-release.json', '', @ManifestProgress);
+  if not LoadStringFromFile(ExpandConstant('{tmp}\luma-release.json'), Raw) then
+    RaiseException('No se pudo leer el manifiesto');
+  Manifest := Raw;
+  Version := JsonString(Manifest, 'version');
+  if Version <> '{#SetupVersion}' then
+    RaiseException('El manifiesto no corresponde a esta beta del instalador.');
+  Url := JsonString(Manifest, 'url');
+  Hash := JsonString(Manifest, 'sha256');
+  ExpectedUrl := 'https://github.com/Fernanboom34/Launcher/releases/download/v' + Version + '/Luma-' + Version + '.exe';
+  if Url <> ExpectedUrl then RaiseException('La descarga no pertenece al release esperado de Luma');
+  if Length(Hash) <> 64 then RaiseException('SHA-256 no valido');
+  for I := 1 to Length(Hash) do
+    if Pos(Lowercase(Hash[I]), '0123456789abcdef') = 0 then RaiseException('SHA-256 no valido');
+end;
+
+function DownloadMaintenancePayload: String;
+var
+  Url, Hash: String;
+begin
+  Result := ExpandConstant('{tmp}\Luma.exe');
+#ifdef FixturePayload
+  if not FileCopy('{#FixturePayload}', Result, False) then RaiseException('No se pudo copiar la fixture');
+#else
+  ResolveRelease(Url, Hash);
+  DownloadTemporaryFile(Url, 'Luma.exe', Hash, nil);
+#endif
+end;
+
 procedure InitializeWizard;
 begin
   DownloadPage := CreateDownloadPage('Descargando Luma', 'Se verificara la descarga antes de instalar.', nil);
@@ -200,9 +275,7 @@ end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
-  Raw: AnsiString;
-  Manifest, Version, Url, Hash, ExpectedUrl: String;
-  I: Integer;
+  Url, Hash: String;
 begin
   Result := '';
 #ifndef FixturePayload
@@ -213,21 +286,7 @@ begin
   DownloadPage.Show;
   try
     try
-      DownloadTemporaryFile('https://github.com/Fernanboom34/Launcher/releases/download/{#ReleaseTag}/luma-release.json',
-        'luma-release.json', '', @ManifestProgress);
-      if not LoadStringFromFile(ExpandConstant('{tmp}\luma-release.json'), Raw) then
-        RaiseException('No se pudo leer el manifiesto');
-      Manifest := Raw;
-      Version := JsonString(Manifest, 'version');
-      if Version <> '{#SetupVersion}' then
-        RaiseException('El manifiesto no corresponde a esta beta del instalador.');
-      Url := JsonString(Manifest, 'url');
-      Hash := JsonString(Manifest, 'sha256');
-      ExpectedUrl := 'https://github.com/Fernanboom34/Launcher/releases/download/v' + Version + '/Luma-' + Version + '.exe';
-      if Url <> ExpectedUrl then RaiseException('La descarga no pertenece al release esperado de Luma');
-      if Length(Hash) <> 64 then RaiseException('SHA-256 no valido');
-      for I := 1 to Length(Hash) do
-        if Pos(Lowercase(Hash[I]), '0123456789abcdef') = 0 then RaiseException('SHA-256 no valido');
+      ResolveRelease(Url, Hash);
       DownloadPage.Clear;
       DownloadPage.Add(Url, 'Luma.exe', Hash);
       DownloadPage.Download;
