@@ -11,8 +11,8 @@ Actualizado: 25/10/2026 (México). Solicitud actual del usuario: limpiar el proy
 - NUEVA INSTRUCCIÓN DEL USUARIO: una rama por cambio, no trabajar ni integrar en main automáticamente. Ramas desde main, sin mezclar arreglos entre sí.
 
 ## En curso
-1. Compilando la integración 0.7.1-beta.1 en [Actions 40168293370](https://github.com/Fernanboom34/Launcher/actions/runs/40168293370), sin publicación automática. Solo después de pasar se puede publicar como pre-release con EXE de launcher (sin Setup).
-2. Reemplazo del instalador en `fix/standard-installer`: prototipo compilado, todavía sin integración completa de datos/migración/updater. No listo para distribuir.
+1. **Beta publicada y verificada:** [0.7.1-beta.1](https://github.com/Fernanboom34/Launcher/releases/tag/v0.7.1-beta.1), solo EXE de launcher + manifiesto + SHA256SUMS. Prerelease=true, draft=false, NO latest. La estable sigue en 0.7.0; sin Setup en la beta. Actions 40168293370 pasó formato, Clippy, 39 pruebas main y 10 Setup, y compilación MSVC. Se verificó SHA-256 y arranque del EXE final en datos aislados antes de publicar.
+2. **Siguiente prioridad: instalador / Defender**, en `fix/standard-installer`: prototipo Inno compilado, todavía sin integración completa de datos/migración/updater. No listo para distribuir. El usuario tiene laptop para probar y pidió no enviar muestras a Microsoft.
 
 ## Pendientes
 - Verificar el flujo manual completo de Cargar archivos y descargas en el navegador hijo; ambas webs YA pasaron smoke en MSVC estático real y LTSC (ver resultado abajo).
@@ -21,7 +21,7 @@ Actualizado: 25/10/2026 (México). Solicitud actual del usuario: limpiar el proy
 - DECISIÓN POSTERIOR DEL USUARIO: NO enviar a Microsoft; prefiere solucionarlo en el proyecto. No enviar muestra ni informe. Preparar sustitución del Setup propio por un instalador estándar y probar con Defender activo; no prometer que un cambio de empaquetado elimina por sí solo la detección.
 - El usuario tiene una laptop disponible para probar la beta del instalador nuevo. Usarla con Windows/Defender activos y sin reglas de permitir esta detección. Registrar antivirus vs SmartScreen por separado; no usar el Setup 0.7.0 como candidato de solución.
 - Se consultó Get-MpPreference SOLO LECTURA: en el equipo actual existe ThreatIDDefaultAction_Ids=[2147731250], Actions=[6] (Allow), consistente con restauración de la captura. NO se cambió. Por ello un resultado local sin bloqueo no demuestra que el instalador nuevo esté libre de esa detección; hay que comprobar en la laptop u otra VM limpia.
-- Revisar ramas e integrar solo después de validación. Usuario pidió ramas por cambio, no cambios directos a main. No se creó tag ni release nuevo.
+- Revisar ramas e integrar solo después de validación. Usuario pidió ramas por cambio, no cambios directos a main. Se creó únicamente el tag/pre-release v0.7.1-beta.1, sin modificar main ni publicar estable.
 
 ## Completado en esta sesión
 - Registro creado antes de hacer cambios.
@@ -42,6 +42,16 @@ Actualizado: 25/10/2026 (México). Solicitud actual del usuario: limpiar el proy
 - NUEVA INSTRUCCIÓN: cualquier versión de prueba que se publique debe ser **beta/pre-release**. No convertirla en latest estable ni activar actualizaciones de usuarios estables. No se ha publicado una beta todavía; solo se han subido ramas y artefacto de verificación del launcher.
 - Rama `fix/stable-updates-from-beta`: commit `f0fc7c9`, subida. Permite comparar una versión beta local con una actualización estable futura; añade pruebas al comparador, verificadas por la CI de la beta.
 - Rama de integración para publicar prueba `release/0.7.1-beta.1`: `643557e`, subida, combina por cherry-pick los commits de controles, navegador y comparación de versión; Cargo.toml/Cargo.lock indican 0.7.1-beta.1. No integra el instalador estándar incompleto ni modifica main. Se solicitó build MSVC con source_ref=`release/0.7.1-beta.1`, publish=false. Cuando pase, descargar artefacto y publicar SOLO app + manifiesto y checksum de la app, con `prerelease=true`, `make_latest=false`. No incluir el Setup Rust antiguo ni su checksum en ese release. No está publicado todavía al escribir esta línea.
+- RESULTADO FINAL: beta publicada como se indica arriba. La rama/tag apuntan a `00e7983`: después del build de `643557e` solo se cambió `.github/workflows/release.yml` para bloquear que el tag beta ejecute el publicador antiguo del Setup; se comprobó esa diferencia antes de publicar. Ninguna diferencia de código de aplicación respecto del EXE verificado. Asset app `Luma-0.7.1-beta.1.exe`; checksum público incluye SOLO la app. Temporales de verificación y publicación retirados.
+- Últimos commits de documentación: `fix/standard-installer` = `a622925` (actualiza prueba Inno); `security/defender-review` = `99ba40c` (registra NO enviar informe). El reporte original en inglés es referencia, no un envío autorizado.
+
+## Trabajo concreto del instalador para la próxima sesión
+1. `git switch fix/standard-installer`; leer `installer/README.md` y `installer/Luma.iss`.
+2. Diseñar borrado opcional de datos con confirmación, inventario y límites de rutas. **No añadir simplemente DelTree de LocalAppData a un uninstaller elevado:** las constantes de usuario de Inno pueden referirse al administrador que dio credenciales, y ExecAsOriginalUser no funciona en desinstalación. Preservar el contexto original, no seguir junctions y proteger directorios compartidos. Reusar conceptualmente las comprobaciones de src/cleanup.rs, con pruebas aisladas.
+3. Migrar la instalación 0.7.0 y su entrada HKCU de desinstalación al registro nativo de Inno sin duplicados y sin borrar mundos.
+4. Integrar build.ps1/workflow para usar el nuevo Setup, y revisar el updater de Program Files (el EXE aún usa scripts de PowerShell). El prototipo no cambia ese código todavía.
+5. Pruebas completas en carpeta/VM aislada; luego beta/pre-release del instalador para la laptop, con Defender activo y sin Allow para Bearfoos. Separar SmartScreen de antivirus. No cambiar protecciones ni dar por solucionada la detección solo por compilar.
+6. Si se publica otra prueba, solo pre-release. Integrar main únicamente después de revisión, no directamente.
 
 ## Comandos para retomar
 ```powershell
