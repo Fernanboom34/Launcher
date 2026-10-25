@@ -249,7 +249,7 @@ pub enum Event {
     InstanceRemoved(String),
     ContentChanged(String),
     ProfileCreated(Box<GameProfile>),
-    LoaderVersions(Loader, String, Vec<String>),
+    LoaderVersions(Loader, String, Vec<String>, std::collections::HashSet<String>),
     UpdateAvailable(crate::distribution::Release),
     UpdateReady(PathBuf),
     EditorLoaderVersions(Vec<String>),

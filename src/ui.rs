@@ -536,9 +536,10 @@ impl Launcher {
                     self.settings.selected = profile.version_id;
                     self.save_settings();
                 }
-                Event::LoaderVersions(loader, minecraft, versions) => {
+                Event::LoaderVersions(loader, minecraft, versions, stable) => {
                     if self.new_loader == loader && self.new_minecraft == minecraft {
-                        self.new_loader_version = versions.first().cloned().unwrap_or_default();
+                        self.new_loader_version = versions.iter().find(|v| loader != Loader::Fabric || self.library.fabric_builds || stable.contains(*v)).cloned().unwrap_or_default();
+                        self.library.stable_loaders = stable;
                         self.loader_versions = versions;
                         self.loader_query = Some((loader, minecraft));
                     }
