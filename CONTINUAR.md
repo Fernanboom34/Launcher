@@ -2,6 +2,21 @@
 
 Actualizado: 25/10/2026 (México). Solicitud actual del usuario: limpiar el proyecto (~8 GB), investigar Defender que detecta Setup como Trojan:Win32/Bearfoos.A!ml, corregir crash al abrir webs en Windows 11 Enterprise LTSC, Play de mundos y controles de contenido (switch y tres puntos). Mantener este archivo actualizado para retomar si se acaba la cuota.
 
+## Cierre vigente de esta sesión (prevalece sobre el historial de abajo)
+
+- Publicado y verificado **[v0.7.1-beta.2-windows](https://github.com/Fernanboom34/Launcher/releases/tag/v0.7.1-beta.2-windows)**, prerelease=true y sin sustituir latest estable 0.7.0. Incluye app, **Setup nuevo Inno**, manifiesto y SHA256SUMS. Main local/remoto sigue en 1057f3a; no se tocó ni integró la rama Linux del otro agente en la nube.
+- Source de integración `release/0.7.1-beta.2-windows`. Features separadas: `fix/browser-downloads` (5ebc8a8), `fix/windows-installer-flow` (77849b6), CI `ci/branch-verification` (b076641). Los cambios de features se integraron por cherry-pick solo en la rama de beta, nunca en main.
+- Descargas: reproducido rechazo de blob HTTPS. Admitidos blobs con origen HTTPS, mantenidos límites de archivos y rutas. UI nativa de descargas visible (Wry la ocultaba), botón Descargas y logs con motivo de interrupción. Descargas reales directa HTTPS, ZIP blob y JAR blob probadas; JAR comprobado contra SHA-1 de Modrinth. No se automatizó ni desactivó ninguna barrera de seguridad.
+- Setup nuevo: Inno normal muestra instalar/actualizar o desinstalar; solo su motor /ALLUSERS se eleva para Program Files. Datos del jugador se gestionan por Luma.exe --manage-uninstall-data en el usuario original, con rutas, confirmación, protección de directorios y opción compartidos. Luego unins000.exe retira la aplicación con UAC. Para migrar 0.7.0 primero instalar esta actualización conservando datos. Desde Aplicaciones de Windows se conserva la información del jugador; usar el Setup para elegir borrado completo. El archivo descargado del Setup se conserva en Descargas.
+- Pruebas: Actions **40173302914 SUCCESS**: formato, Clippy, tests y build MSVC; compilación Inno; instalación nativa en carpeta temporal, hash instalado, retirada del viejo Setup fixture, desinstalación y marcador externo intacto. No hubo instalación elevada ni borrado sobre datos reales del usuario. App final arrancada con datos aislados, sin DLL aparte. Se descargaron ambos artefactos (tokens solo en llamada API, nunca en redirect), se verificaron hashes y se publicó pre-release con make_latest=false. Temporales de publicación retirados.
+- App SHA-256: `0add2346056fbba0d00e7774f425750e51b7a31e857f16b2048426b742aa5842` (13.292.032 bytes). Setup nuevo SHA-256: `22127167255fcd9a12fb91922fa9490660327dd0c2e1b8b7654782b9fe9ca19d` (2.099.007 bytes); marcador binario Inno comprobado. Es diferente al Setup Rust 0.7.0 (8,3 MB / hash bbbcc77e...). No se firmó con un certificado público.
+- Nota 0.7.0 corregida por API: detección observada en un equipo y no reproducida en laptop; la nota la escribió el mantenedor, no un análisis antivirus de GitHub Actions. No se envió informe ni muestra a Microsoft, según decisión del usuario. No se cambió Defender. El equipo local tiene Allow para ThreatID 2147731250; una prueba aquí no demuestra resultado en equipos limpios.
+- **Pendientes para la laptop:** comparar Setup nuevo con Defender activo sin reglas Allow; menú inicial normal, instalación/actualización y UAC con otra cuenta; probar descargas web desde botones; probar flujo visual de desinstalación con una instancia desechable y conservar datos primero. No afirmar que se resolvió la clasificación de Defender hasta tener resultado. El usuario dispone de laptop para ello.
+- Pendiente técnico adicional: updater del launcher sigue usando PowerShell en Program Files (el Setup nuevo cambia la instalación, no ese updater). Quick Play completo con copia de mundo sigue pendiente. Revisar y aprobar ramas antes de integrar main. Linux se está trabajando por otro agente: coordinar conflictos de Cargo.toml/main/browser al integrar, no sobrescribir su trabajo.
+- El usuario pidió apagar la PC después de terminar y guardar. Se solicitará apagado normal con /s /t 0, sin /f, como último paso de ESTA sesión. **No repetir automáticamente esa orden en sesiones futuras.**
+
+Lo siguiente es historial y puede contener estados anteriores de compilación/publicación. Para retomar, usar este cierre y las ramas indicadas.
+
 ## Reglas y contexto
 - INSTRUCCIÓN DEL USUARIO AL FINAL DE ESTA SESIÓN: cuando el trabajo de verificación/publicación y guardado termine, ejecutar un comando para apagar la PC. Solicitud explícita. Usar apagado normal sin /f (shutdown /s /t 0), después de guardar commits/registros. No apagar antes de terminar los pasos dependientes ni mientras se necesita interacción local.
 - Proyecto: C:\Users\PCERDITA\Documents\Launcher. Rust/egui, Windows. Repositorio público Fernanboom34/Launcher.
@@ -71,6 +86,9 @@ git branch -vv
 # Elegir la rama del arreglo que se vaya a continuar; no main.
 git switch fix/content-browser-process
 $env:PATH="$PWD\.tools\mingw64\bin;$env:USERPROFILE\.cargo\bin;$env:PATH"
+$env:CARGO_PROFILE_DEV_DEBUG='0'
+$env:CARGO_PROFILE_TEST_DEBUG='0'
+$env:CARGO_INCREMENTAL='0'
 cargo +stable-x86_64-pc-windows-gnu test --locked
 ```
 Después de la limpieza habrá que recompilar dependencias. El EXE GNU necesita WebView2Loader.dll (el script de smoke añade su carpeta del build al PATH); no distribuirlo solo. Los helpers antiguos en artifacts se eliminaron a propósito: si hace falta GitHub API, usar git credential fill solo en memoria, nunca imprimir credenciales. El workflow actual de main PUBLICA al ejecutarlo manualmente: no dispararlo para verificar una rama sin proteger el paso de publicación.
