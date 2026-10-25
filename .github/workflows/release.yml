@@ -3,6 +3,15 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      source_ref:
+        description: 'Rama a verificar (vacío: rama/tag del workflow)'
+        required: false
+        type: string
+      publish:
+        description: 'Publicar release (solo sin source_ref)'
+        type: boolean
+        default: false
 permissions:
   contents: write
 jobs:
@@ -10,6 +19,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref || github.ref }}
       - name: Preparar Rust estable
         shell: pwsh
         run: |
@@ -53,7 +64,17 @@ jobs:
           cargo test --locked
           if ($LASTEXITCODE) { throw 'Las pruebas fallaron' }
           ./build.ps1
+      - name: Guardar launcher de verificación
+        uses: actions/upload-artifact@v4
+        with:
+          name: Luma-verificacion-${{ github.run_id }}
+          path: |
+            artifacts/Luma-*.exe
+            artifacts/luma-release.json
+            artifacts/SHA256SUMS.txt
+          retention-days: 7
       - name: Publicar ejecutables y manifiesto
+        if: startsWith(github.ref, 'refs/tags/v') || (inputs.publish == true && inputs.source_ref == '')
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
