@@ -7,6 +7,8 @@ permissions:
   contents: write
 jobs:
   windows:
+    # Betas are published explicitly, without the old Setup or stable updates.
+    if: ${{ !contains(github.ref_name, '-') || github.event_name == 'workflow_dispatch' }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
