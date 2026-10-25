@@ -1,6 +1,6 @@
 # Estado para retomar Luma
 
-## Reapertura 25/10: fallos reales de beta.2 (en curso; prevalece sobre el cierre anterior)
+## Cierre 25/10: beta.3 publicada (prevalece sobre cierres anteriores)
 
 - Usuario: Setup no inicia instalar (mensaje generico), desinstalar exige migrar, descarga web aparece pero termina FILE_FAILED (motivo 1). Logs locales de Setup #005/#006 y browser-latest.log confirman los tres sintomas. No se ha instalado ni desinstalado nada real.
 - Rama `fix/setup-bootstrap-elevation`, c57b49f (c3371f7 fue intento intermedio): la documentacion oficial de Inno confirma que Exec Y ShellExec no permiten ejecutar el propio Setup durante InitializeSetup. Se elimino el relanzamiento; ahora PrivilegesRequired=admin usa elevacion estandar Inno. ExecAsOriginalUser mantiene el helper de datos en el usuario original.
@@ -11,7 +11,9 @@
 - CI MSVC **40221754955 SUCCESS** para 5458891: formato, Clippy, 42 main+10 Setup, 5 pruebas ignoradas, compilacion app y Setup, instalacion/desinstalacion temporal por entrada normal y limpieza legada conserva archivo desconocido. Compilacion Inno rapida 40221841949 SUCCESS. Primera ejecucion 40221474224 tambien SUCCESS.
 - Artefactos de 40221754955 descargados con conector GitHub. Digests ZIP, checksums internos, manifiesto y marcador Inno verificados. App beta.3: **48da6e5ca7525c064ffa6a62f131e6123873e54411fa50d4a0a3785e0c42a2e0**, 13.316.096 bytes. Setup beta.3: **8d83e23198141f4203922db1637f55f0bb21c1ac22e2907a539880caddebd6d9**, 2.099.394 bytes.
 - `scripts/check-web-download.py` PASA sobre EXE MSVC FINAL, abre pagina Modrinth admitida y usa CDP efimero solo en navegador de prueba para navegar al archivo reportado; guardado en resourcepacks, SHA1 y ZIP comprobados, sin tocar instancia real. Primera version de script intentaba CDN como URL inicial y fue correctamente rechazada por la validacion de origen; se corrigio el script, no se relajo la politica del app. Dependencia websocket-client solo de prueba en artifacts, se limpiara. No se modificaron controles de seguridad ni ajustes persistentes del navegador.
-- Proximo: commit de script/notas, tag y publicar solo pre-release beta.3 con app, Setup, manifiesto y checksums. Credencial obtenida en memoria por artifacts/session-gh.py, no impresa. Tras publicar verificar publicamente y limpiar compilados otra vez. No apagar PC: autorizacion anterior ya usada.
+- **Publicado y verificado publicamente** https://github.com/Fernanboom34/Launcher/releases/tag/v0.7.1-beta.3-windows : prerelease=true, draft=false, cuatro assets (app, NUEVO Setup, manifiesto, SHA256SUMS). Descargados sin autenticacion y verificados los cuatro archivos y digests. Latest estable sigue v0.7.0. Tag e481b98; codigo ejecutable coincide con CI5458891 (cambios posteriores solo docs y script de pruebas). Main sigue 1057f3a local/remoto. No se integro Linux.
+- Queda al usuario probar el Setup normal/UAC en su equipo y desinstalacion con sus elecciones; CI uso carpetas desechables y entrada normal. UAC con otro administrador sigue pendiente. ZIP Fresh y guardado real en app final comprobados. JAR blob de prueba oculta sigue pendiente por timeout; no prometer que todos los flujos web han sido comprobados.
+- No se envio muestra a Microsoft ni se altero Defender. No apagar PC: autorizacion anterior ya usada.
 - No repetir apagado: la autorizacion anterior se uso al cierre pasado.
 
 Actualizado: 25/10/2026 (México). Solicitud actual del usuario: limpiar el proyecto (~8 GB), investigar Defender que detecta Setup como Trojan:Win32/Bearfoos.A!ml, corregir crash al abrir webs en Windows 11 Enterprise LTSC, Play de mundos y controles de contenido (switch y tres puntos). Mantener este archivo actualizado para retomar si se acaba la cuota.
