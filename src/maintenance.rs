@@ -50,7 +50,10 @@ fn player_plan(plan: &cleanup::UninstallPlan) -> cleanup::UninstallPlan {
 fn same_path(a: &std::path::Path, b: &std::path::Path) -> bool {
     cleanup::display_path(a).eq_ignore_ascii_case(&cleanup::display_path(b))
 }
-fn application_plan(plan: &cleanup::UninstallPlan) -> anyhow::Result<cleanup::UninstallPlan> {
+fn application_plan(
+    plan: &cleanup::UninstallPlan,
+    legacy: &std::path::Path,
+) -> anyhow::Result<cleanup::UninstallPlan> {
     let mut apps = cleanup::UninstallPlan {
         files: plan
             .files
@@ -69,7 +72,7 @@ fn application_plan(plan: &cleanup::UninstallPlan) -> anyhow::Result<cleanup::Un
         "Luma.exe.previous",
         "Luma.download",
     ] {
-        let file = distribution::legacy_install_dir().join(name);
+        let file = legacy.join(name);
         if file.is_file() {
             apps.files.push(file.canonicalize()?);
         }
@@ -77,6 +80,19 @@ fn application_plan(plan: &cleanup::UninstallPlan) -> anyhow::Result<cleanup::Un
     apps.files.sort();
     apps.files.dedup();
     Ok(apps)
+}
+fn perform_removal(
+    protected: &cleanup::UninstallPlan,
+    selected: &cleanup::UninstallPlan,
+    legacy: &std::path::Path,
+) -> anyhow::Result<()> {
+    cleanup::ensure_not_running(protected)?;
+    let apps = application_plan(protected, legacy)?;
+    cleanup::uninstall_files(selected)?;
+    cleanup::uninstall_files(&apps)?;
+    // Never recursively remove unknown files from the legacy app directory.
+    let _ = std::fs::remove_dir(legacy);
+    Ok(())
 }
 impl Removal {
     fn new(outcome: Arc<AtomicI32>) -> Self {
@@ -120,19 +136,9 @@ impl Removal {
         self.busy = true;
         self.status = "Retirando las copias registradas de Luma y las rutas confirmadas…".into();
         std::thread::spawn(move || {
-            let result = (|| -> anyhow::Result<()> {
-                // Keep the application directory protected while checking for
-                // other running launchers, even though we won't delete it here.
-                cleanup::ensure_not_running(&protected)?;
-                let apps = application_plan(&protected)?;
-                cleanup::uninstall_files(&selected)?;
-                cleanup::uninstall_files(&apps)?;
-                // Never recursively remove unknown files from the legacy app
-                // directory. The remaining empty directory is optional.
-                let _ = std::fs::remove_dir(distribution::legacy_install_dir());
-                Ok(())
-            })()
-            .map_err(|e| format!("{e:#}"));
+            let result =
+                perform_removal(&protected, &selected, &distribution::legacy_install_dir())
+                    .map_err(|e| format!("{e:#}"));
             let _ = tx.send(result);
         });
     }
@@ -206,5 +212,40 @@ mod tests {
         let plan = player_plan(&plan);
         assert_eq!(plan.directories, vec![data.clone()]);
         assert!(plan.files.is_empty());
+    }
+    #[test]
+    fn portable_removal_keeps_worlds_unless_deletion_is_selected() {
+        for delete_data in [false, true] {
+            let root = std::env::temp_dir().join(format!(
+                "luma-removal-{}-{}",
+                std::process::id(),
+                u8::from(delete_data)
+            ));
+            std::fs::create_dir_all(root.join("data/saves/world")).unwrap();
+            let data = root.join("data").canonicalize().unwrap();
+            std::fs::write(data.join("saves/world/level.dat"), b"preserve world").unwrap();
+            std::fs::write(root.join("Luma-test.exe"), b"registered portable fixture").unwrap();
+            let app = root.join("Luma-test.exe").canonicalize().unwrap();
+            let plan = cleanup::UninstallPlan {
+                directories: vec![data.clone()],
+                files: vec![app.clone()],
+                excluded: vec![],
+            };
+            let selected = if delete_data {
+                player_plan(&plan)
+            } else {
+                Default::default()
+            };
+            perform_removal(&plan, &selected, &root.join("legacy")).unwrap();
+            assert!(!app.exists());
+            assert_eq!(data.exists(), !delete_data);
+            if !delete_data {
+                assert_eq!(
+                    std::fs::read(data.join("saves/world/level.dat")).unwrap(),
+                    b"preserve world"
+                );
+            }
+            cleanup::delete_verified_directory(&root, &root.canonicalize().unwrap()).unwrap();
+        }
     }
 }

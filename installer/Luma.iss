@@ -1,8 +1,8 @@
 #ifndef SetupVersion
-  #define SetupVersion "0.7.1-beta.2-windows"
+  #define SetupVersion "0.7.1-beta.3-windows"
 #endif
 #ifndef ReleaseTag
-  #define ReleaseTag "v0.7.1-beta.2-windows"
+  #define ReleaseTag "v0.7.1-beta.3-windows"
 #endif
 
 [Setup]
@@ -140,7 +140,12 @@ begin
   AppDir := ExpandConstant('{commonpf64}\Luma Launcher');
   AppExe := AddBackslash(AppDir) + 'Luma.exe';
   Uninstaller := AddBackslash(AppDir) + 'unins000.exe';
+#ifdef FixturePayload
+  if ExpandConstant('{param:LUMA_ACTION|}') = 'install' then Action := mrYes
+  else Action := ChooseAction;
+#else
   Action := ChooseAction;
+#endif
   if Action = mrYes then begin
     Result := True;
   end else if Action = mrNo then begin

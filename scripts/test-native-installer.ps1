@@ -16,7 +16,7 @@ $payload = (Resolve-Path -LiteralPath target/release/luma-launcher.exe).Path
 & $compiler "/DFixturePayload=$payload" "/O$fixtureOutput" '/FLuma-Setup-fixture' installer/Luma.iss
 if ($LASTEXITCODE) { throw 'La variante de fixture no compila' }
 $probeLog = Join-Path $env:RUNNER_TEMP 'Luma-inno-install.log'
-$arguments = @('/ALLUSERS','/LUMA_ENGINE=1','/VERYSILENT','/NORESTART','/SP-','/SUPPRESSMSGBOXES',"/DIR=$probeFolder","/LOG=$probeLog")
+$arguments = @('/LUMA_ACTION=install','/VERYSILENT','/NORESTART','/SP-','/SUPPRESSMSGBOXES',"/DIR=$probeFolder","/LOG=$probeLog")
 $process = Start-Process -FilePath (Join-Path $fixtureOutput 'Luma-Setup-fixture.exe') -ArgumentList $arguments -WindowStyle Hidden -Wait -PassThru
 Get-Content -LiteralPath $probeLog
 if ($process.ExitCode) { throw "La instalacion de prueba fallo: $($process.ExitCode)" }

@@ -1,6 +1,6 @@
 [package]
 name = "luma-launcher"
-version = "0.7.1-beta.2-windows"
+version = "0.7.1-beta.3-windows"
 edition = "2021"
 description = "Launcher de Minecraft Java Edition escrito en Rust"
 
