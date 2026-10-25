@@ -2,6 +2,8 @@
 
 24/10/2026. Estado: detección confirmada, causa y clasificación pendientes de revisión. No hay un instalador nuevo validado. Este problema es distinto de SmartScreen.
 
+Actualización 25/10/2026: el usuario pidió NO enviar muestra ni informe a Microsoft. No se ha enviado nada. La prioridad es sustituir el diseño del instalador en `fix/standard-installer` y comprobarlo con Defender activo. El texto preparado al final queda solo como referencia, sin autorización de envío.
+
 ## Evidencia
 - Microsoft Defender: `Trojan:Win32/Bearfoos.A!ml`, ThreatID `2147731250`, al descargar y ejecutar `Luma-Setup.exe` desde el release de GitHub. Motor local `1.1.26090.9`, firmas `1.461.186.0`. Protección en tiempo real activada al consultar.
 - SHA-256 publicado del Setup: `bbbcc77eeea9b1152704f21b2745d2e68b7652a07fc438e45fae46cc1da41d9c`.
@@ -14,7 +16,7 @@ El instalador propio descarga un EXE, lanza PowerShell con scripts codificados p
 No basta con recompilar hasta obtener un hash no detectado. Hay que revisar el diseño, comprobar la procedencia de la compilación y obtener un dictamen sobre la muestra detectada. Para una distribución posterior conviene evaluar un instalador estándar (MSI/Inno Setup) o un ayudante nativo de instalación con acciones limitadas, reduciendo el uso de comandos genéricos, y probar instalación, actualización y desinstalación en una VM limpia con Defender activo.
 
 ## Siguiente trabajo
-1. Enviar la muestra original a [Microsoft Security Intelligence](https://www.microsoft.com/en-us/wdsi/filesubmission) como proveedor de software, con su hash y los datos siguientes. **Todavía no se ha enviado**. Registrar ID del caso y respuesta; no afirmar falso positivo antes del resultado.
+1. No enviar muestra ni informe, según la decisión del usuario. [Microsoft Security Intelligence](https://www.microsoft.com/en-us/wdsi/filesubmission) queda como referencia opcional para una decisión futura, no como paso autorizado. No afirmar que sea falso positivo sin pruebas.
 2. Revisar todas las acciones privilegiadas, descarga de EXE, scripts de eliminación y dependencias de la compilación. Hasta ahora no se ha completado una auditoría independiente ni una revisión de cadena de suministro.
 3. Elegir y desarrollar la sustitución del instalador si procede, en una rama nueva. Conservar instalación en Program Files, datos por usuario, acceso directo opcional y desinstalación explícita de datos; sin JAR ni perfiles precargados.
 4. Validar con Defender activo en un Windows limpio, además del equipo LTSC. No reutilizar una excepción o permiso de amenaza previamente creado por el usuario como evidencia de que está limpio.
