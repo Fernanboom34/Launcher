@@ -17,6 +17,8 @@ Modrinth permite consultas y descargas públicas sin una clave. La API de tercer
 
 ## Aviso de Windows SmartScreen
 
+**Detección de Defender en investigación (Setup 0.7.0):** se ha detectado `Trojan:Win32/Bearfoos.A!ml` al descargar/ejecutar el instalador. Esto es distinto del aviso de reputación de SmartScreen descrito abajo. No se ha confirmado un falso positivo y las indicaciones para SmartScreen no deben usarse para permitir una amenaza, restaurar cuarentena o desactivar Defender. Consulta [el estado de la revisión](REVISION-DEFENDER.md). Todavía no hay un instalador de reemplazo validado.
+
 Los releases actuales no tienen una firma pública de editor configurada. Windows puede mostrar **Windows protegió su PC** o **editor desconocido** al descargar el instalador. Este aviso no demuestra por sí solo que un archivo sea malicioso, y tampoco debe interpretarse esta documentación como una garantía de seguridad.
 
 Descarga únicamente desde los [releases oficiales de Luma](https://github.com/Fernanboom34/Launcher/releases). Para comprobar los archivos usa `Get-FileHash -Algorithm SHA256` y compara el resultado con `SHA256SUMS.txt` publicado en ese release. Si verificaste el origen y decides ejecutarlo, Windows puede ofrecer **Más información → Ejecutar de todas formas**. En equipos administrados esta opción puede estar bloqueada. El aviso de permisos de administrador para Program Files es un paso distinto. Puede identificar a Windows PowerShell, que ejecuta la copia restringida de archivos; eso no significa que Luma esté firmado por Microsoft.
