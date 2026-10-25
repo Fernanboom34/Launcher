@@ -38,14 +38,45 @@ struct Removal {
 }
 fn player_plan(plan: &cleanup::UninstallPlan) -> cleanup::UninstallPlan {
     let mut selected = plan.clone();
-    selected
-        .directories
-        .retain(|p| !distribution::is_program_installation(p));
-    selected.files.retain(|p| {
-        !p.parent()
-            .is_some_and(distribution::is_program_installation)
+    selected.directories.retain(|p| {
+        !distribution::is_program_installation(p)
+            && !same_path(p, &distribution::legacy_install_dir())
     });
+    // These files are registered launcher executables and shortcuts, not
+    // player data. Remove them even when the player chooses to keep worlds.
+    selected.files.clear();
     selected
+}
+fn same_path(a: &std::path::Path, b: &std::path::Path) -> bool {
+    cleanup::display_path(a).eq_ignore_ascii_case(&cleanup::display_path(b))
+}
+fn application_plan(plan: &cleanup::UninstallPlan) -> anyhow::Result<cleanup::UninstallPlan> {
+    let mut apps = cleanup::UninstallPlan {
+        files: plan
+            .files
+            .iter()
+            .filter(|p| {
+                !p.parent()
+                    .is_some_and(distribution::is_program_installation)
+            })
+            .cloned()
+            .collect(),
+        ..Default::default()
+    };
+    for name in [
+        "Luma.exe",
+        "Luma-Setup.exe",
+        "Luma.exe.previous",
+        "Luma.download",
+    ] {
+        let file = distribution::legacy_install_dir().join(name);
+        if file.is_file() {
+            apps.files.push(file.canonicalize()?);
+        }
+    }
+    apps.files.sort();
+    apps.files.dedup();
+    Ok(apps)
 }
 impl Removal {
     fn new(outcome: Arc<AtomicI32>) -> Self {
@@ -64,12 +95,16 @@ impl Removal {
             outcome,
         }
     }
-    fn remove(&mut self) {
+    fn remove(&mut self, delete_data: bool) {
         let Some(protected) = self.plan.clone() else {
             return;
         };
-        let mut selected = player_plan(&protected);
-        if self.shared {
+        let mut selected = if delete_data {
+            player_plan(&protected)
+        } else {
+            cleanup::UninstallPlan::default()
+        };
+        if delete_data && self.shared {
             for path in &protected.excluded {
                 match cleanup::validate_private_directory(path, &[]) {
                     Ok(path) => selected.directories.push(path),
@@ -83,13 +118,19 @@ impl Removal {
         let (tx, rx) = mpsc::channel();
         self.receiver = Some(rx);
         self.busy = true;
-        self.status = "Eliminando las rutas confirmadas…".into();
+        self.status = "Retirando las copias registradas de Luma y las rutas confirmadas…".into();
         std::thread::spawn(move || {
             let result = (|| -> anyhow::Result<()> {
                 // Keep the application directory protected while checking for
                 // other running launchers, even though we won't delete it here.
                 cleanup::ensure_not_running(&protected)?;
-                cleanup::uninstall_files(&selected)
+                let apps = application_plan(&protected)?;
+                cleanup::uninstall_files(&selected)?;
+                cleanup::uninstall_files(&apps)?;
+                // Never recursively remove unknown files from the legacy app
+                // directory. The remaining empty directory is optional.
+                let _ = std::fs::remove_dir(distribution::legacy_install_dir());
+                Ok(())
             })()
             .map_err(|e| format!("{e:#}"));
             let _ = tx.send(result);
@@ -105,7 +146,7 @@ impl eframe::App for Removal {
                 Ok(()) => {
                     self.complete = true;
                     self.status =
-                        "Los datos confirmados se eliminaron. Continúa para retirar la aplicación."
+                        "Operación completada. Continúa para retirar la instalación de Program Files, si existe."
                             .into();
                 }
                 Err(e) => self.status = e,
@@ -116,7 +157,7 @@ impl eframe::App for Removal {
         }
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("Desinstalar Luma");
-            ui.label("Elige si conservas tus mundos, mods, cuentas, capturas y ajustes. Después se retirará la aplicación de Program Files.");
+            ui.label("Elige si conservas tus mundos, mods, cuentas, capturas y ajustes. Las copias registradas del launcher y sus accesos directos se retirarán en ambos casos. Después se retirará la instalación de Program Files, si existe.");
             ui.separator();
             egui::ScrollArea::vertical().max_height(285.).show(ui, |ui| {
                 if let Some(plan) = &self.plan {
@@ -139,10 +180,11 @@ impl eframe::App for Removal {
             if !self.status.is_empty() { ui.label(&self.status); }
             ui.add_space(12.);
             ui.horizontal_wrapped(|ui| {
-                if ui.add_enabled(!self.busy, egui::Button::new(if self.complete { "Continuar desinstalación" } else { "Conservar datos y desinstalar" })).clicked() {
-                    self.outcome.store(0, Ordering::SeqCst); ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                if ui.add_enabled(!self.busy && self.plan.is_some(), egui::Button::new(if self.complete { "Continuar desinstalación" } else { "Conservar datos y desinstalar" })).clicked() {
+                    if self.complete { self.outcome.store(0, Ordering::SeqCst); ctx.send_viewport_cmd(egui::ViewportCommand::Close); }
+                    else { self.remove(false); }
                 }
-                if ui.add_enabled(!self.busy && !self.complete && self.acknowledged && self.plan.is_some(), egui::Button::new("Eliminar datos y continuar")).clicked() { self.remove(); }
+                if ui.add_enabled(!self.busy && !self.complete && self.acknowledged && self.plan.is_some(), egui::Button::new("Eliminar datos y continuar")).clicked() { self.remove(true); }
                 if ui.add_enabled(!self.busy, egui::Button::new("Cancelar")).clicked() { ctx.send_viewport_cmd(egui::ViewportCommand::Close); }
             });
         });
@@ -163,6 +205,6 @@ mod tests {
         };
         let plan = player_plan(&plan);
         assert_eq!(plan.directories, vec![data.clone()]);
-        assert_eq!(plan.files, vec![data.join("account.json")]);
+        assert!(plan.files.is_empty());
     }
 }
