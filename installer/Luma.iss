@@ -15,10 +15,9 @@ AppPublisherURL=https://github.com/Fernanboom34/Launcher
 DefaultDirName={autopf}\Luma Launcher
 DefaultGroupName=Luma Launcher
 DisableProgramGroupPage=yes
-; The front end stays in the player's context. Only the /ALLUSERS engine
-; process is elevated by Inno Setup itself.
-PrivilegesRequired=lowest
-PrivilegesRequiredOverridesAllowed=commandline
+; Let Inno perform its standard elevation. Launching the same Setup from
+; InitializeSetup is explicitly unsupported by Inno's Exec/ShellExec APIs.
+PrivilegesRequired=admin
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
@@ -106,7 +105,7 @@ end;
 function InitializeSetup: Boolean;
 var
   Action, ExitCode: Integer;
-  AppDir, AppExe, Uninstaller, Arguments: String;
+  AppDir, AppExe, Uninstaller: String;
 begin
   Result := False;
   if ExpandConstant('{param:LUMA_ENGINE|0}') = '1' then begin
@@ -119,21 +118,13 @@ begin
   Uninstaller := AddBackslash(AppDir) + 'unins000.exe';
   Action := ChooseAction;
   if Action = mrYes then begin
-    Arguments := '/ALLUSERS /LUMA_ENGINE=1';
-    if not ShellExec('runas', ExpandConstant('{srcexe}'), Arguments, '', SW_SHOWNORMAL, ewWaitUntilTerminated, ExitCode) then begin
-      MsgBox('No se pudo iniciar la instalacion. Windows: ' + IntToStr(ExitCode) + ' - ' + SysErrorMessage(ExitCode), mbError, MB_OK);
-      Exit;
-    end;
-    if ExitCode <> 0 then
-      MsgBox('La instalacion termino sin completarse (codigo ' + IntToStr(ExitCode) + '). Consulta el registro de Setup en la carpeta temporal.', mbError, MB_OK);
-    if ExitCode = 0 then
-      RegDeleteKeyIncludingSubkeys(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\Luma');
+    Result := True;
   end else if Action = mrNo then begin
     if (not FileExists(AppExe)) or (not FileExists(Uninstaller)) then begin
       MsgBox('Primero instala esta actualizacion para migrar el desinstalador anterior. Tus datos se conservaran.', mbInformation, MB_OK);
       Exit;
     end;
-    if not Exec(AppExe, '--manage-uninstall-data', AppDir, SW_SHOWNORMAL, ewWaitUntilTerminated, ExitCode) then begin
+    if not ExecAsOriginalUser(AppExe, '--manage-uninstall-data', ExpandConstant('{tmp}'), SW_SHOWNORMAL, ewWaitUntilTerminated, ExitCode) then begin
       MsgBox('No se pudo abrir la confirmacion de datos. No se ha desinstalado Luma.', mbError, MB_OK);
       Exit;
     end;
