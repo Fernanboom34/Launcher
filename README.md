@@ -87,7 +87,7 @@ Luma revisa cada diez segundos sus clientes y los de `%APPDATA%\.minecraft`. Los
 
 Si ejecutas un instalador externo, utiliza **Importar → Carpeta para instaladores** y selecciona esa ruta como destino en el instalador. Cuando termine, el cliente aparecerá en la biblioteca. La opción prepara el archivo de perfiles que esperan los instaladores.
 
-La opción **Modo sin conexión** requiere haber completado primero la instalación. Crear o instalar un cargador necesita conexión. Las versiones compatibles dependen de lo que publique cada proyecto; el launcher muestra un aviso cuando no existe un cargador para el Minecraft elegido.
+Jugar sin conexión requiere haber completado primero la instalación; Luma utiliza automáticamente los archivos disponibles. Crear o instalar un cargador necesita conexión. Las versiones compatibles dependen de lo que publique cada proyecto; el launcher muestra un aviso cuando no existe un cargador para el Minecraft elegido.
 
 ### Cuenta Microsoft (opcional)
 

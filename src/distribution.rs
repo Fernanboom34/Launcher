@@ -136,6 +136,8 @@ fn ps_command(script: &str) -> Command {
             .collect::<Vec<_>>(),
     );
     let mut command = Command::new("powershell.exe");
+    // Windows PowerShell must discover its own modules when launched by pwsh.
+    command.env_remove("PSModulePath");
     command.args([
         "-NoProfile",
         "-NonInteractive",
