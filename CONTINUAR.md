@@ -19,6 +19,8 @@ Actualizado: 25/10/2026 (México). Solicitud actual del usuario: limpiar el proy
 - Verificar Quick Play de extremo a extremo con una COPIA de un mundo, sin modificar los mundos reales. El arreglo de clics ya pasa la prueba de entrada de egui; todavía no se arrancó un mundo para verificarlo.
 - Defender sigue sin resolver: revisar/reemplazar diseño de instalador y validar con protección activa antes de afirmar que está limpio. Leer `REVISION-DEFENDER.md` en rama `security/defender-review` (`git show security/defender-review:REVISION-DEFENDER.md`). No enviar muestra, según decisión del usuario.
 - DECISIÓN POSTERIOR DEL USUARIO: NO enviar a Microsoft; prefiere solucionarlo en el proyecto. No enviar muestra ni informe. Preparar sustitución del Setup propio por un instalador estándar y probar con Defender activo; no prometer que un cambio de empaquetado elimina por sí solo la detección.
+- El usuario tiene una laptop disponible para probar la beta del instalador nuevo. Usarla con Windows/Defender activos y sin reglas de permitir esta detección. Registrar antivirus vs SmartScreen por separado; no usar el Setup 0.7.0 como candidato de solución.
+- Se consultó Get-MpPreference SOLO LECTURA: en el equipo actual existe ThreatIDDefaultAction_Ids=[2147731250], Actions=[6] (Allow), consistente con restauración de la captura. NO se cambió. Por ello un resultado local sin bloqueo no demuestra que el instalador nuevo esté libre de esa detección; hay que comprobar en la laptop u otra VM limpia.
 - Revisar ramas e integrar solo después de validación. Usuario pidió ramas por cambio, no cambios directos a main. No se creó tag ni release nuevo.
 
 ## Completado en esta sesión
