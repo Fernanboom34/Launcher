@@ -144,6 +144,15 @@ pub fn decode(bytes: &[u8]) -> Result<image::RgbaImage> {
     }
     let mut full = image::RgbaImage::new(64, 64);
     image::imageops::overlay(&mut full, &source, 0, 0);
+    // Legacy RGB skins used an opaque unused region instead of an alpha hat.
+    // Match Minecraft's transparency fix before uploading the normalized PNG.
+    if (0..32).all(|y| (32..64).all(|x| source.get_pixel(x, y)[3] >= 128)) {
+        for y in 0..16 {
+            for x in 32..64 {
+                full.get_pixel_mut(x, y)[3] = 0;
+            }
+        }
+    }
     for (sx, sy, dx, dy, w, h) in [
         (4, 16, 20, 48, 4, 4),
         (8, 16, 24, 48, 4, 4),
@@ -459,7 +468,11 @@ mod tests {
         assert!(decode(b"not a PNG").is_err());
         assert!(decode(&png(32, 32)).is_err());
         assert!(decode(&png(128, 128)).is_err());
-        assert_eq!(decode(&png(64, 32)).unwrap().dimensions(), (64, 64));
+        let legacy = decode(&png(64, 32)).unwrap();
+        assert_eq!(legacy.dimensions(), (64, 64));
+        assert_eq!(legacy.get_pixel(40, 8)[3], 0);
+        assert_eq!(legacy.get_pixel(8, 8)[3], 255);
+        assert_eq!(legacy.get_pixel(44, 24)[3], 255);
         let root = fixture();
         let mut library = Library::default();
         let bytes = png(64, 64);
