@@ -1,5 +1,13 @@
 # Estado para retomar Luma
 
+## Reapertura 25/10: fallos reales de beta.2 (en curso)
+
+- Usuario: Setup no inicia instalar (mensaje generico), desinstalar exige migrar, descarga web aparece pero termina FILE_FAILED (motivo 1). Logs locales de Setup #005/#006 y browser-latest.log confirman los tres sintomas. No se ha instalado ni desinstalado nada real.
+- Rama `fix/setup-bootstrap-elevation`, c3371f7: ShellExec runas explicito para el motor elevado, error Windows detallado. Pendiente compilar y probar bootstrap, no solo motor fixture.
+- Rama `fix/webview-download-paths`: causa reproducida: perfil JSON con ruta DOS normal dejaba slash de join(".luma/web-downloads") en ResultFilePath. Fixture anterior usaba ruta verbatim canonica y ocultaba el fallo. ZIP blob con ruta normal FALLA sin canonicalizar stage (FILE_FAILED, archivo ausente); PASA con canonicalizacion (bytes iguales). Se amplian pruebas directas y blob reales antes de commit.
+- Sigue pendiente quitar dependencia de migracion para desinstalar 0.7.0 desde Setup nuevo. Crear rama separada. No tocar main ni Linux. Proxima publicacion solo pre-release.
+- No repetir apagado: la autorizacion anterior se uso al cierre pasado.
+
 Actualizado: 25/10/2026 (México). Solicitud actual del usuario: limpiar el proyecto (~8 GB), investigar Defender que detecta Setup como Trojan:Win32/Bearfoos.A!ml, corregir crash al abrir webs en Windows 11 Enterprise LTSC, Play de mundos y controles de contenido (switch y tres puntos). Mantener este archivo actualizado para retomar si se acaba la cuota.
 
 ## Cierre vigente de esta sesión (prevalece sobre el historial de abajo)

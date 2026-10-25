@@ -323,6 +323,10 @@ fn window_impl(
             .as_nanos()
     ));
     std::fs::create_dir_all(&stage)?;
+    // Chromium requires a native Windows path. Profiles read from JSON use
+    // ordinary DOS paths, so join(".luma/web-downloads") otherwise leaves a
+    // forward slash in ResultFilePath. Canonical fixtures hid this difference.
+    let stage = stage.canonicalize()?;
     let data = if probe {
         profile.storage_dir.clone()
     } else {
@@ -402,6 +406,7 @@ fn window_impl(
             })();
             match result {
                 Ok(target) => {
+                    eprintln!("download-target {}", crate::cleanup::display_path(&target));
                     *path = target;
                     count.set(count.get() + 1);
                     let _ = starter_tx.send(Event::Status(
@@ -622,7 +627,8 @@ mod tests {
     #[test]
     #[ignore = "Abre un WebView2 oculto y descarga un archivo real en una carpeta aislada"]
     fn live_webview_download_uses_the_selected_instance_folder() {
-        let profile = crate::catalog::test_profile();
+        let mut profile = crate::catalog::test_profile();
+        profile.game_dir = PathBuf::from(crate::cleanup::display_path(&profile.game_dir));
         let version = crate::catalog::versions(&profile, Kind::Mod, "fabric-api")
             .unwrap()
             .remove(0);
@@ -691,7 +697,10 @@ mod tests {
     #[ignore = "Descarga un ZIP blob generado por una página HTTPS en WebView2"]
     fn live_webview_blob_zip_download_from_page() {
         use base64::Engine;
-        let profile = crate::catalog::test_profile();
+        let mut profile = crate::catalog::test_profile();
+        // Match persisted profiles, which have non-verbatim paths, unlike
+        // test_profile's canonical (verbatim) Windows paths.
+        profile.game_dir = PathBuf::from(crate::cleanup::display_path(&profile.game_dir));
         let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
         zip.start_file("pack.mcmeta", zip::write::SimpleFileOptions::default())
             .unwrap();
