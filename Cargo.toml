@@ -33,6 +33,15 @@ shell-words = "1"
 strip = true
 lto = "thin"
 
+# Evita varios GB de símbolos y cachés incrementales en el checkout local.
+[profile.dev]
+debug = 0
+incremental = false
+
+[profile.test]
+debug = 0
+incremental = false
+
 
 [target.'cfg(windows)'.dependencies]
 wry = { version = "0.57.1", default-features = false, features = ["os-webview"] }
