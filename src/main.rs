@@ -1,6 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod auth;
+mod content;
+mod distribution;
 mod engine;
 mod model;
 mod net;
@@ -18,6 +20,7 @@ fn main() -> eframe::Result {
             "--install-loader-jar",
             "--install-profile",
             "--verify-profile",
+            "--repair-profile",
             "--play-profile",
         ]
         .contains(&arg.as_str())

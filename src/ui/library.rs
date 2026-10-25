@@ -38,7 +38,7 @@ impl Launcher {
             .exact_height(54.)
             .frame(
                 egui::Frame::new()
-                    .fill(PANEL)
+                    .fill(palette().panel)
                     .inner_margin(egui::Margin::symmetric(16, 8)),
             )
             .show(ctx, |ui| {
@@ -50,9 +50,17 @@ impl Launcher {
                         egui::Align2::CENTER_CENTER,
                         "L",
                         FontId::proportional(24.),
-                        BG,
+                        Color32::from_rgb(18, 30, 24),
                     );
                     ui.label(RichText::new("luma").size(25.).strong());
+                    if (self.settings.behavior.sidebar_button
+                        || !self.settings.behavior.sidebar_visible)
+                        && ui.button("☰").clicked()
+                    {
+                        self.settings.behavior.sidebar_visible =
+                            !self.settings.behavior.sidebar_visible;
+                        self.save_settings();
+                    }
                     ui.add_space(14.);
                     if art::icon_button(ui, Glyph::Back, "Ir a Inicio", false, true, 30.).clicked()
                     {
@@ -65,13 +73,55 @@ impl Launcher {
                             Page::Versions => "Versiones de Minecraft",
                             Page::Settings => "Ajustes",
                             Page::Activity => "Actividad",
+                            Page::Instance => "Instancia",
+                            Page::Screenshots => "Capturas de pantalla",
                         })
                         .size(14.)
                         .strong(),
                     );
+                    if !self.settings.appearance.decorations {
+                        let rect = Rect::from_min_max(
+                            Pos2::new(ui.cursor().min.x, ui.min_rect().top()),
+                            Pos2::new(
+                                (ui.max_rect().right() - 400.).max(ui.cursor().min.x),
+                                ui.min_rect().top() + 36.,
+                            ),
+                        );
+                        if ui
+                            .interact(rect, ui.id().with("title_drag"), Sense::drag())
+                            .drag_started()
+                        {
+                            ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+                        }
+                    }
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if !self.settings.appearance.decorations {
+                            if ui.button("×").clicked() {
+                                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                            }
+                            if ui.button("□").clicked() {
+                                ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(
+                                    !ctx.input(|i| i.viewport().maximized.unwrap_or(false)),
+                                ));
+                            }
+                            if ui.button("−").clicked() {
+                                ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+                            }
+                        }
+                        if let Some(release) = self.update_release.clone() {
+                            if ui
+                                .add_enabled(
+                                    !self.busy,
+                                    primary("Nueva versión disponible · Actualizar"),
+                                )
+                                .clicked()
+                            {
+                                self.download_update(release);
+                            }
+                        }
+
                         egui::Frame::new()
-                            .stroke(Stroke::new(1.0_f32, BORDER))
+                            .stroke(Stroke::new(1.0_f32, palette().border))
                             .corner_radius(10.)
                             .inner_margin(egui::Margin::symmetric(12, 6))
                             .show(ui, |ui| {
@@ -81,7 +131,11 @@ impl Launcher {
                                     ui.painter().circle_filled(
                                         dot.center(),
                                         3.,
-                                        if self.game_running { MINT } else { MUTED },
+                                        if self.game_running {
+                                            MINT
+                                        } else {
+                                            palette().muted
+                                        },
                                     );
                                     ui.label(
                                         RichText::new(if self.game_running {
@@ -92,14 +146,14 @@ impl Launcher {
                                             "Ninguna instancia en ejecución"
                                         })
                                         .size(12.)
-                                        .color(MUTED),
+                                        .color(palette().muted),
                                     );
                                 });
                             });
                         ui.label(
                             RichText::new(format!("v{}", env!("CARGO_PKG_VERSION")))
                                 .size(11.)
-                                .color(MUTED),
+                                .color(palette().muted),
                         );
                     });
                 });
@@ -110,13 +164,14 @@ impl Launcher {
         egui::SidePanel::left("navigation")
             .exact_width(70.)
             .resizable(false)
-            .frame(egui::Frame::new().fill(PANEL).inner_margin(10.))
+            .frame(egui::Frame::new().fill(palette().panel).inner_margin(10.))
             .show(ctx, |ui| {
                 for (page, icon, label) in [
                     (Page::Home, Glyph::Play, "Inicio"),
                     (Page::Profiles, Glyph::Grid, "Biblioteca de instancias"),
                     (Page::Versions, Glyph::Download, "Versiones de Minecraft"),
                     (Page::Activity, Glyph::Activity, "Actividad y descargas"),
+                    (Page::Screenshots, Glyph::Image, "Capturas de pantalla"),
                 ] {
                     if art::icon_button(ui, icon, label, self.page == page, true, 48.).clicked() {
                         self.page = page;
@@ -143,8 +198,7 @@ impl Launcher {
                         );
                     }
                     if response.clicked() {
-                        self.select_instance(&profile);
-                        self.page = Page::Profiles;
+                        self.open_instance(&profile);
                     }
                     response.on_hover_text(format!(
                         "{}\n{} {}",
@@ -182,7 +236,9 @@ impl Launcher {
     }
 
     pub(super) fn context_panel(&mut self, ctx: &egui::Context) {
-        egui::SidePanel::right("instance_context").exact_width(244.).resizable(false).frame(egui::Frame::new().fill(Color32::from_rgb(27,32,30)).inner_margin(16.)).show(ctx, |ui| {
+        egui::SidePanel::right("instance_context").exact_width(244.).resizable(false).frame(egui::Frame::new().fill(palette().panel).inner_margin(16.)).show(ctx, |ui| {
+                self.account_switcher(ui);
+
             egui::ScrollArea::vertical().id_salt("context_scroll").show(ui, |ui| {
                 section(ui,"JUGANDO COMO");
                 card().inner_margin(12.).show(ui, |ui| {
@@ -192,7 +248,7 @@ impl Launcher {
                         art::cover(ui.painter(),avatar,Loader::Vanilla,0,None);
                         ui.vertical(|ui| {
                             ui.label(RichText::new(self.settings.profile.as_ref().map(|p|p.name.as_str()).unwrap_or(&self.settings.local_name)).strong().size(14.));
-                            ui.label(RichText::new(if self.settings.profile.as_ref().is_some_and(|p|!p.local) {"Cuenta Microsoft"}else{"Jugador local"}).size(11.).color(MUTED));
+                            ui.label(RichText::new(if self.settings.profile.as_ref().is_some_and(|p|!p.local) {"Cuenta Microsoft"}else{"Jugador local"}).size(11.).color(palette().muted));
                         });
                     });
                 });
@@ -200,11 +256,11 @@ impl Launcher {
                     ui.add(egui::TextEdit::singleline(&mut self.settings.local_name).desired_width(ui.available_width()).char_limit(16));
                     if ui.add_enabled(!self.busy,egui::Button::new("Usar nombre")).clicked() {
                         match model::Profile::offline(&self.settings.local_name) {
-                            Ok(profile)=>{self.settings.profile=Some(profile);self.session=None;self.save_settings();},
+                            Ok(profile)=>{if !self.settings.accounts.iter().any(|p|p.id==profile.id){self.settings.accounts.push(profile.clone());}self.settings.profile=Some(profile);self.session=None;self.save_settings();},
                             Err(error)=>self.error=Some(error.to_string()),
                         }
                     }
-                    if ui.small_button("Opciones de cuenta").clicked() {self.page=Page::Settings;}
+                    if ui.small_button("Opciones de cuenta").clicked() {self.page=Page::Settings;self.workspace.global_tab=2;}
                 });
                 if ui.add_enabled(!self.busy,egui::Checkbox::new(&mut self.settings.offline,"Modo sin conexión")).changed() {self.save_settings();}
                 ui.add_space(14.);ui.separator();ui.add_space(12.);
@@ -215,7 +271,7 @@ impl Launcher {
                         self.paint_cover(ui,cover,&profile);
                         ui.vertical(|ui| {
                             ui.label(RichText::new(&profile.name).size(14.).strong());
-                            ui.label(RichText::new(format!("{} {}",profile.loader.label(),profile.minecraft)).size(11.).color(MUTED));
+                            ui.label(RichText::new(format!("{} {}",profile.loader.label(),profile.minecraft)).size(11.).color(palette().muted));
                         });
                     });
                     if ui.add_enabled(!self.busy,primary("Jugar").min_size(Vec2::new(ui.available_width(),36.))).clicked() {self.play_instance(&profile);}
@@ -224,21 +280,21 @@ impl Launcher {
                         if ui.add(egui::Button::new("Carpeta").min_size(Vec2::new(92.,32.))).clicked() {self.instance_folder(&profile,false);}
                     });
                     if ui.button("Personalizar portada").clicked() {self.library.cover_target=Some(profile.id.clone());}
-                    ui.label(RichText::new(if profile.imported {"Usa la carpeta de juego importada."}else{"Mods y mundos en su propia carpeta."}).size(11.).color(MUTED));
+                    ui.label(RichText::new(if profile.imported {"Usa la carpeta de juego importada."}else{"Mods y mundos en su propia carpeta."}).size(11.).color(palette().muted));
                 } else {
                     card().inner_margin(14.).show(ui,|ui| {
                         ui.label(RichText::new("Tu próxima aventura").strong());
-                        ui.label(RichText::new("Elige una tarjeta de la biblioteca para ver sus opciones.").size(12.).color(MUTED));
+                        ui.label(RichText::new("Elige una tarjeta de la biblioteca para ver sus opciones.").size(12.).color(palette().muted));
                     });
                 }
                 ui.add_space(14.);ui.separator();ui.add_space(12.);
                 section(ui,"TU ESPACIO");
-                ui.horizontal(|ui| {ui.label(RichText::new(format!("{} instancias",self.installations.len())).size(12.).color(MUTED));ui.label(RichText::new(format!("{:.1} GB de RAM",self.settings.memory_mb as f32/1024.)).size(12.).color(MUTED));});
+                ui.horizontal(|ui| {ui.label(RichText::new(format!("{} instancias",self.installations.len())).size(12.).color(palette().muted));ui.label(RichText::new(format!("{:.1} GB de RAM",self.settings.memory_mb as f32/1024.)).size(12.).color(palette().muted));});
                 ui.add_space(12.);
-                card().fill(Color32::from_rgb(32,53,43)).inner_margin(14.).show(ui, |ui| {
+                card().fill(palette().soft).inner_margin(14.).show(ui, |ui| {
                     ui.set_min_width(ui.available_width());
                     ui.label(RichText::new("Un lugar para cada mundo").strong().size(15.));
-                    ui.label(RichText::new("Crea otra instancia para probar un cargador o una combinación distinta de mods.").size(12.).color(MUTED));
+                    ui.label(RichText::new("Crea otra instancia para probar un cargador o una combinación distinta de mods.").size(12.).color(palette().muted));
                     if ui.add_enabled(!self.busy,egui::Button::new("+ Nueva instancia")).clicked() {self.open_create();}
                 });
             });
@@ -257,7 +313,7 @@ impl Launcher {
             .id_salt("library_scroll")
             .show(ui, |ui| {
                 if self.busy && self.library.pending_style.is_some() {
-                    card().fill(Color32::from_rgb(34, 57, 44)).show(ui, |ui| {
+                    card().fill(palette().soft).show(ui, |ui| {
                         ui.set_min_width(ui.available_width());
                         ui.horizontal(|ui| {
                             ui.spinner();
@@ -277,13 +333,20 @@ impl Launcher {
                                 .strong(),
                             );
                         });
-                        ui.label(RichText::new(&self.status).size(12.).color(MUTED));
+                        ui.label(RichText::new(&self.status).size(12.).color(palette().muted));
                     });
                 }
                 if show_quick && !self.installations.is_empty() {
                     ui.label(RichText::new("Salta al juego").size(24.).strong());
                     ui.add_space(4.);
                     let mut quick = self.installations.clone();
+                    quick.retain(|p| {
+                        !self
+                            .settings
+                            .instance_styles
+                            .get(&p.id)
+                            .is_some_and(|s| s.hidden_home)
+                    });
                     quick.sort_by_key(|p| {
                         let style = self
                             .settings
@@ -320,7 +383,7 @@ impl Launcher {
                     ui.label(
                         RichText::new(format!("{} instancias", self.installations.len()))
                             .size(12.)
-                            .color(MUTED),
+                            .color(palette().muted),
                     );
                 });
                 ui.horizontal(|ui| {
@@ -482,7 +545,7 @@ impl Launcher {
                             } else {
                                 "Prueba con otro nombre o cambia los filtros."
                             })
-                            .color(MUTED),
+                            .color(palette().muted),
                         );
                         if self.installations.is_empty()
                             && ui
@@ -496,7 +559,20 @@ impl Launcher {
                 let cols = ((ui.available_width() + 14.) / 190.).floor().clamp(2., 7.) as usize;
                 let width =
                     ((ui.available_width() - 14. * (cols - 1) as f32) / cols as f32).min(190.);
-                for row in matches.chunks(cols) {
+                if self.settings.behavior.compact {
+                    for profile in &matches {
+                        self.compact_instance(ui, profile);
+                        ui.add_space(4.);
+                    }
+                }
+                for row in matches.chunks(if self.settings.behavior.compact {
+                    matches.len().max(1)
+                } else {
+                    cols
+                }) {
+                    if self.settings.behavior.compact {
+                        break;
+                    }
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 14.;
                         for profile in row {
@@ -508,14 +584,47 @@ impl Launcher {
             });
     }
 
+    fn compact_instance(&mut self, ui: &mut egui::Ui, p: &GameProfile) {
+        let response = card()
+            .inner_margin(10.)
+            .show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+                ui.horizontal(|ui| {
+                    let (r, _) = ui.allocate_exact_size(Vec2::splat(44.), Sense::hover());
+                    self.paint_cover(ui, r, p);
+                    if ui.selectable_label(false, &p.name).clicked() {
+                        self.open_instance(p);
+                    }
+                    ui.label(
+                        RichText::new(format!("{} {}", p.loader.label(), p.minecraft))
+                            .color(palette().muted),
+                    );
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if ui.add_enabled(!self.busy, primary("Jugar")).clicked() {
+                            self.play_instance(p);
+                        }
+                        ui.menu_button("···", |ui| self.instance_menu(ui, p));
+                    });
+                });
+            })
+            .response;
+        response.context_menu(|ui| self.instance_menu(ui, p));
+    }
     fn quick_card(&mut self, ui: &mut egui::Ui, profile: &GameProfile, width: f32) {
         let (rect, response) = ui.allocate_exact_size(Vec2::new(width, 80.), Sense::click());
-        ui.painter()
-            .rect_filled(rect, 14., if response.hovered() { HOVER } else { CARD });
+        ui.painter().rect_filled(
+            rect,
+            14.,
+            if response.hovered() {
+                palette().hover
+            } else {
+                palette().card
+            },
+        );
         ui.painter().rect_stroke(
             rect,
             14.,
-            Stroke::new(1.0_f32, BORDER),
+            Stroke::new(1.0_f32, palette().border),
             egui::StrokeKind::Inside,
         );
         self.paint_cover(
@@ -524,15 +633,19 @@ impl Launcher {
             profile,
         );
         let text_left = rect.left() + 80.;
+        let recent = self.recent_world(profile);
         art::text_fit(
             ui.painter(),
             Rect::from_min_max(
                 Pos2::new(text_left, rect.top() + 17.),
                 Pos2::new(rect.right() - 104., rect.top() + 38.),
             ),
-            &profile.name,
+            &recent
+                .as_ref()
+                .map(|w| w.name.clone())
+                .unwrap_or_else(|| profile.name.clone()),
             15.,
-            TEXT,
+            palette().text,
         );
         let style = self
             .settings
@@ -553,7 +666,7 @@ impl Launcher {
                 played_ago(style.last_played)
             ),
             12.,
-            MUTED,
+            palette().muted,
         );
         let play = Rect::from_min_size(
             Pos2::new(rect.right() - 94., rect.center().y - 17.),
@@ -561,10 +674,10 @@ impl Launcher {
         );
         let clicked = self.play_control(ui, play, &profile.id, true);
         if response.clicked() && !clicked {
-            self.select_instance(profile);
+            self.open_instance(profile);
         }
         if clicked {
-            self.play_instance(profile);
+            self.play_recent(profile);
         }
         response.context_menu(|ui| self.instance_menu(ui, profile));
     }
@@ -573,8 +686,15 @@ impl Launcher {
         let (rect, response) =
             ui.allocate_exact_size(Vec2::new(width, width + 70.), Sense::click());
         let selected = self.settings.active_installation == profile.id;
-        ui.painter()
-            .rect_filled(rect, 15., if response.hovered() { HOVER } else { CARD });
+        ui.painter().rect_filled(
+            rect,
+            15.,
+            if response.hovered() {
+                palette().hover
+            } else {
+                palette().card
+            },
+        );
         ui.painter().rect_stroke(
             rect,
             15.,
@@ -583,7 +703,7 @@ impl Launcher {
                 if selected {
                     MINT.gamma_multiply(0.7)
                 } else {
-                    BORDER
+                    palette().border
                 },
             ),
             egui::StrokeKind::Inside,
@@ -616,7 +736,7 @@ impl Launcher {
             ),
             &profile.name,
             15.,
-            TEXT,
+            palette().text,
         );
         art::text_fit(
             ui.painter(),
@@ -626,7 +746,7 @@ impl Launcher {
             ),
             &format!("{} {}", profile.loader.label(), profile.minecraft),
             12.,
-            MUTED,
+            palette().muted,
         );
         let play = Rect::from_min_size(
             Pos2::new(rect.right() - 44., rect.bottom() - 40.),
@@ -642,7 +762,7 @@ impl Launcher {
             ui.menu_button("…", |ui| self.instance_menu(ui, profile));
         });
         if response.clicked() && !clicked {
-            self.select_instance(profile);
+            self.open_instance(profile);
         }
         if response.double_clicked() || clicked {
             self.play_instance(profile);
@@ -694,7 +814,7 @@ impl Launcher {
             } else {
                 Glyph::Play
             },
-            BG,
+            Color32::from_rgb(18, 30, 24),
         );
         if with_label {
             ui.painter().text(
@@ -702,7 +822,7 @@ impl Launcher {
                 egui::Align2::CENTER_CENTER,
                 if running { "Jugando" } else { "Jugar" },
                 FontId::proportional(13.),
-                BG,
+                Color32::from_rgb(18, 30, 24),
             );
         }
         response
@@ -715,7 +835,66 @@ impl Launcher {
             && enabled
     }
 
-    fn instance_menu(&mut self, ui: &mut egui::Ui, profile: &GameProfile) {
+    pub(super) fn instance_menu(&mut self, ui: &mut egui::Ui, profile: &GameProfile) {
+        if ui.button("Ver instancia").clicked() {
+            ui.close_menu();
+            self.open_instance(profile);
+        }
+        if ui.button("Añadir contenido").clicked() {
+            ui.close_menu();
+            self.open_instance(profile);
+            self.workspace.import_open = true;
+        }
+        if ui.button("Configuración").clicked() {
+            ui.close_menu();
+            self.open_instance(profile);
+            self.workspace.tab = 4;
+        }
+        if ui.button("Copiar ruta").clicked() {
+            ui.ctx().copy_text(profile.game_dir.display().to_string());
+            ui.close_menu();
+        }
+        if ui
+            .add_enabled(!self.busy, egui::Button::new("Duplicar instancia"))
+            .clicked()
+        {
+            let root = self.root.clone();
+            let p = profile.clone();
+            self.work(move |tx| {
+                tx.send(Event::Profiles(profiles::duplicate(&root, &p)?))?;
+                Ok(())
+            });
+            ui.close_menu();
+        }
+        if ui.button("Ocultar de Inicio").clicked() {
+            self.settings
+                .instance_styles
+                .entry(profile.id.clone())
+                .or_default()
+                .hidden_home = true;
+            self.save_settings();
+            ui.close_menu();
+        }
+        if ui.button("Crear acceso directo").clicked() {
+            if let Ok(exe) = std::env::current_exe() {
+                if let Err(e) = crate::distribution::shortcut(
+                    &exe,
+                    &profile.name,
+                    &format!("--play-profile {}", profile.id),
+                ) {
+                    self.error = Some(e.to_string());
+                }
+            }
+            ui.close_menu();
+        }
+        if ui
+            .add_enabled(!self.busy, egui::Button::new("Eliminar de la biblioteca"))
+            .clicked()
+        {
+            self.workspace.remove = Some(profile.id.clone());
+            ui.close_menu();
+        }
+        ui.separator();
         if ui
             .add_enabled(!self.busy, egui::Button::new("Jugar"))
             .clicked()
@@ -766,18 +945,18 @@ impl Launcher {
         }
     }
 
-    fn select_instance(&mut self, profile: &GameProfile) {
+    pub(super) fn select_instance(&mut self, profile: &GameProfile) {
         self.settings.active_installation = profile.id.clone();
         self.settings.selected = profile.version_id.clone();
         self.save_settings();
     }
-    fn play_instance(&mut self, profile: &GameProfile) {
+    pub(super) fn play_instance(&mut self, profile: &GameProfile) {
         if !self.busy {
             self.select_instance(profile);
             self.run(true);
         }
     }
-    fn instance_folder(&mut self, profile: &GameProfile, mods: bool) {
+    pub(super) fn instance_folder(&mut self, profile: &GameProfile, mods: bool) {
         let path = if mods {
             profile.game_dir.join("mods")
         } else {
@@ -790,7 +969,7 @@ impl Launcher {
         }
     }
 
-    fn paint_cover(&mut self, ui: &egui::Ui, rect: Rect, profile: &GameProfile) {
+    pub(super) fn paint_cover(&mut self, ui: &egui::Ui, rect: Rect, profile: &GameProfile) {
         let style = self
             .settings
             .instance_styles
@@ -810,7 +989,7 @@ impl Launcher {
         );
     }
 
-    fn cover_texture(
+    pub(super) fn cover_texture(
         &mut self,
         ctx: &egui::Context,
         path: &std::path::Path,
@@ -837,7 +1016,12 @@ impl Launcher {
 }
 
 fn section(ui: &mut egui::Ui, text: &str) {
-    ui.label(RichText::new(text).size(10.).strong().color(MUTED));
+    ui.label(
+        RichText::new(text)
+            .size(10.)
+            .strong()
+            .color(palette().muted),
+    );
 }
 fn version_numbers(version: &str) -> Vec<u32> {
     version
@@ -953,7 +1137,11 @@ impl Launcher {
                             }
                         });
                     });
-                    ui.label(RichText::new(&profile.name).size(12.).color(MUTED));
+                    ui.label(
+                        RichText::new(&profile.name)
+                            .size(12.)
+                            .color(palette().muted),
+                    );
                     ui.add_space(10.);
                     ui.horizontal(|ui| {
                         let (rect, _) = ui.allocate_exact_size(Vec2::splat(132.), Sense::hover());
@@ -1121,17 +1309,17 @@ impl Launcher {
                                         RichText::new(loader.label()).color(if selected {
                                             MINT
                                         } else {
-                                            MUTED
+                                            palette().muted
                                         }),
                                     )
                                     .fill(if selected {
                                         Color32::from_rgb(39, 78, 56)
                                     } else {
-                                        HOVER
+                                        palette().hover
                                     })
                                     .stroke(Stroke::new(
                                         1.0_f32,
-                                        if selected { MINT } else { BORDER },
+                                        if selected { MINT } else { palette().border },
                                     ))
                                     .min_size(Vec2::new(112., 36.));
                                     if ui.add(button).clicked() {
@@ -1232,14 +1420,14 @@ impl Launcher {
                         ui.label(
                             RichText::new("Mods, configuración y mundos en una carpeta propia.")
                                 .size(12.)
-                                .color(MUTED),
+                                .color(palette().muted),
                         );
                         if self.settings.offline {
                             ui.horizontal_wrapped(|ui| {
                                 ui.label(
                                     RichText::new("La instalación necesita conexión.")
                                         .size(12.)
-                                        .color(MUTED),
+                                        .color(palette().muted),
                                 );
                                 if ui.small_button("Permitir descargas").clicked() {
                                     self.settings.offline = false;
@@ -1380,8 +1568,8 @@ impl Launcher {
 
 fn modal_frame() -> egui::Frame {
     egui::Frame::new()
-        .fill(CARD)
-        .stroke(Stroke::new(1.0_f32, BORDER))
+        .fill(palette().card)
+        .stroke(Stroke::new(1.0_f32, palette().border))
         .corner_radius(18.)
         .inner_margin(24.)
 }
@@ -1396,8 +1584,11 @@ fn color_choices(ui: &mut egui::Ui, loader: Loader, selected: u32) -> Option<u32
             ui.painter()
                 .circle_filled(rect.center(), 10., art::loader_color(loader, seed));
             if selected == seed {
-                ui.painter()
-                    .circle_stroke(rect.center(), 12., Stroke::new(1.5_f32, TEXT));
+                ui.painter().circle_stroke(
+                    rect.center(),
+                    12.,
+                    Stroke::new(1.5_f32, palette().text),
+                );
             }
             if response.clicked() {
                 result = Some(seed);

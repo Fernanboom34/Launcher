@@ -21,14 +21,10 @@ use std::{
 
 mod art;
 mod library;
+mod theme;
+mod workspace;
+use theme::palette;
 
-const BG: Color32 = Color32::from_rgb(22, 24, 28);
-const PANEL: Color32 = Color32::from_rgb(32, 35, 40);
-const CARD: Color32 = Color32::from_rgb(39, 42, 48);
-const HOVER: Color32 = Color32::from_rgb(49, 53, 60);
-const BORDER: Color32 = Color32::from_rgb(57, 61, 69);
-const TEXT: Color32 = Color32::from_rgb(242, 244, 246);
-const MUTED: Color32 = Color32::from_rgb(154, 164, 178);
 const MINT: Color32 = Color32::from_rgb(68, 221, 139);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -38,6 +34,8 @@ enum Page {
     Profiles,
     Settings,
     Activity,
+    Instance,
+    Screenshots,
 }
 
 pub struct Launcher {
@@ -75,27 +73,33 @@ pub struct Launcher {
     running_installation: Option<String>,
     preview_started: Instant,
     preview_requested: bool,
+    workspace: workspace::Workspace,
+    sessions: std::collections::HashMap<String, Session>,
+    game_started: Option<Instant>,
+    update_release: Option<crate::distribution::Release>,
+    update_staged: Option<PathBuf>,
 }
 
 impl Launcher {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let mut style = (*cc.egui_ctx.style()).clone();
         style.visuals = egui::Visuals::dark();
-        style.visuals.panel_fill = BG;
-        style.visuals.window_fill = PANEL;
-        style.visuals.extreme_bg_color = BG;
-        style.visuals.override_text_color = Some(TEXT);
+        style.visuals.panel_fill = palette().bg;
+        style.visuals.window_fill = palette().panel;
+        style.visuals.extreme_bg_color = palette().bg;
+        style.visuals.override_text_color = Some(palette().text);
         style.visuals.selection.bg_fill = Color32::from_rgb(36, 83, 58);
         style.visuals.selection.stroke = Stroke::new(1.0_f32, MINT);
         style.visuals.widgets.inactive.bg_fill = Color32::from_rgb(64, 69, 78);
         style.visuals.widgets.inactive.weak_bg_fill = Color32::from_rgb(49, 53, 59);
-        style.visuals.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, BORDER);
-        style.visuals.widgets.hovered.bg_fill = HOVER;
+        style.visuals.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, palette().border);
+        style.visuals.widgets.hovered.bg_fill = palette().hover;
         style.visuals.widgets.active.bg_fill = Color32::from_rgb(45, 88, 63);
         style.visuals.widgets.inactive.corner_radius = CornerRadius::same(8);
         style.visuals.widgets.hovered.corner_radius = CornerRadius::same(8);
         style.visuals.widgets.active.corner_radius = CornerRadius::same(8);
         style.spacing.item_spacing = Vec2::new(10.0, 10.0);
+        style.spacing.interact_size.y = 30.;
         style.spacing.button_padding = Vec2::new(12.0, 8.0);
         style
             .text_styles
@@ -128,7 +132,22 @@ impl Launcher {
             .or_else(|| manifest.versions.iter().find(|v| v.kind == "release"))
             .map(|v| v.id.clone())
             .unwrap_or_default();
-        let installations = profiles::load(&root).unwrap_or_default();
+        let mut installations = profiles::load(&root).unwrap_or_default();
+        let mut migrated = false;
+        for p in &mut installations {
+            if p.runtime.is_none() {
+                p.runtime = Some(profiles::default_runtime(&root));
+                migrated = true;
+            }
+        }
+        if migrated && std::env::var_os("LUMA_PREVIEW").is_none() {
+            let _ = profiles::save(&root, &installations);
+        }
+        if let Some(profile) = &settings.profile {
+            if !settings.accounts.iter().any(|p| p.id == profile.id) {
+                settings.accounts.push(profile.clone());
+            }
+        }
         let installed = std::fs::read_dir(root.join("versions"))
             .into_iter()
             .flatten()
@@ -150,6 +169,7 @@ impl Launcher {
                 Ok("profiles") | Ok("selected") => Page::Profiles,
                 Ok("settings") => Page::Settings,
                 Ok("activity") => Page::Activity,
+                Ok("screenshots") => Page::Screenshots,
                 _ => Page::Home,
             },
             busy: false,
@@ -178,6 +198,11 @@ impl Launcher {
             running_installation: None,
             preview_started: Instant::now(),
             preview_requested: false,
+            workspace: Default::default(),
+            sessions: Default::default(),
+            game_started: None,
+            update_release: None,
+            update_staged: None,
         };
         if std::env::var("LUMA_PREVIEW_PAGE").as_deref() == Ok("selected") {
             if let Some(profile) = app.installations.first() {
@@ -209,6 +234,42 @@ impl Launcher {
             .into();
         } else {
             app.refresh();
+        }
+        if std::env::var_os("LUMA_PREVIEW").is_none() && !app.settings.offline {
+            let tx = app.tx.clone();
+            std::thread::spawn(move || {
+                if let Ok(release) = crate::distribution::latest() {
+                    if crate::distribution::newer(&release.version, env!("CARGO_PKG_VERSION")) {
+                        let _ = tx.send(Event::UpdateAvailable(release));
+                    }
+                }
+            });
+        }
+        if matches!(
+            std::env::var("LUMA_PREVIEW_PAGE").as_deref(),
+            Ok("instance" | "worlds" | "logs" | "instance-settings")
+        ) {
+            if let Some(p) = app.installations.first().cloned() {
+                app.open_instance(&p);
+                app.workspace.tab = match std::env::var("LUMA_PREVIEW_PAGE").as_deref() {
+                    Ok("worlds") => 2,
+                    Ok("logs") => 3,
+                    Ok("instance-settings") => 4,
+                    _ => 0,
+                };
+            }
+        }
+        if let Ok(section) = std::env::var("LUMA_PREVIEW_SECTION") {
+            if let Ok(i) = section.parse::<usize>() {
+                if app.page == Page::Instance {
+                    app.workspace.settings_tab = i.min(4);
+                } else {
+                    app.workspace.global_tab = i.min(5);
+                }
+            }
+        }
+        if let Ok(theme) = std::env::var("LUMA_PREVIEW_THEME") {
+            app.settings.appearance.theme = theme.parse::<usize>().unwrap_or(0).min(3);
         }
         app
     }
@@ -315,7 +376,16 @@ impl Launcher {
             .map(|p| p.storage_dir.clone())
             .unwrap_or_else(|| self.root.clone());
         let mut settings = self.settings.clone();
+        if let Some(profile) = &installation {
+            settings.runtime = profile
+                .runtime
+                .clone()
+                .unwrap_or_else(|| profiles::default_runtime(&self.root));
+            settings.memory_mb = settings.runtime.memory_mb;
+            settings.java = settings.runtime.java.clone();
+        }
         settings.game_directory = installation.map(|p| p.game_dir);
+        settings.quick_world = self.workspace.pending_world.take();
         self.work(move |tx| {
             let installation = engine::prepare(&root, &version, &settings, offline, &tx)?;
             if let Some((profile, token)) = identity {
@@ -372,6 +442,16 @@ impl Launcher {
                 Event::AuthLink(url) => self.auth_url = Some(url),
                 Event::SignedIn(session) => {
                     self.settings.profile = Some(session.profile.clone());
+                    self.sessions
+                        .insert(session.profile.id.clone(), session.clone());
+                    if !self
+                        .settings
+                        .accounts
+                        .iter()
+                        .any(|p| p.id == session.profile.id)
+                    {
+                        self.settings.accounts.push(session.profile.clone());
+                    }
                     self.session = Some(session);
                     self.auth_url = None;
                     self.save_settings();
@@ -410,6 +490,7 @@ impl Launcher {
                     }
                 }
                 Event::GameStarted => {
+                    self.game_started = Some(Instant::now());
                     self.running_installation = self.pending_launch.clone();
                     if let Some(id) = &self.running_installation {
                         self.settings
@@ -427,6 +508,16 @@ impl Launcher {
                     self.progress = None;
                 }
                 Event::GameExited(code) => {
+                    if let (Some(start), Some(id)) =
+                        (self.game_started.take(), self.running_installation.as_ref())
+                    {
+                        self.settings
+                            .instance_styles
+                            .entry(id.clone())
+                            .or_default()
+                            .play_seconds += start.elapsed().as_secs();
+                        self.save_settings();
+                    }
                     self.running_installation = None;
                     self.game_running = false;
                     self.status = format!(
@@ -446,6 +537,9 @@ impl Launcher {
                     self.auth_url = None;
                     self.status = "La operación no se completó".into();
                 }
+                Event::EditorLoaderVersions(v) => self.editor_loader_versions(v),
+                Event::UpdateAvailable(release) => self.update_release = Some(release),
+                Event::UpdateReady(path) => self.update_staged = Some(path),
                 Event::Done => {
                     self.auth_cancel = None;
                     self.auth_url = None;
@@ -514,7 +608,7 @@ impl Launcher {
         ui.label(
             RichText::new(format!("{} versiones", matches.len()))
                 .size(12.0)
-                .color(MUTED),
+                .color(palette().muted),
         );
         egui::ScrollArea::vertical()
             .id_salt("versions_list")
@@ -527,11 +621,15 @@ impl Launcher {
                         ui.set_min_width(ui.available_width());
                         ui.horizontal(|ui| {
                             ui.label(RichText::new(&version.id).size(17.0).strong());
-                            ui.label(RichText::new(kind(&version.kind)).size(11.0).color(MUTED));
+                            ui.label(
+                                RichText::new(kind(&version.kind))
+                                    .size(11.0)
+                                    .color(palette().muted),
+                            );
                             ui.label(
                                 RichText::new(version.release_time.get(..10).unwrap_or(""))
                                     .size(11.0)
-                                    .color(MUTED),
+                                    .color(palette().muted),
                             );
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                 if ui
@@ -556,78 +654,50 @@ impl Launcher {
         }
     }
 
-    fn settings_page(&mut self, ui: &mut egui::Ui) {
-        title(
-            ui,
-            "A tu manera.",
-            "Tu cuenta, tus recursos y tu forma de jugar.",
-        );
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            card().show(ui, |ui| {
-                ui.set_min_width(ui.available_width());
-                ui.label(RichText::new("Cuenta de Microsoft").size(18.0).strong());
-                if let Some(profile) = &self.settings.profile {
-                    ui.label(RichText::new(format!("{} · {}", profile.name, if profile.local { "perfil local, sin cuenta" } else { "perfil Microsoft" })).color(MINT));
-                } else { ui.label(RichText::new("Microsoft es opcional. Puedes usar un perfil local desde Inicio.").color(MUTED)); }
-                ui.label(RichText::new("Continúa en tu navegador y elige tu cuenta Microsoft. No necesitas copiar códigos.").size(12.0).color(MUTED));
-                if auth::configured_client_id(&self.settings.client_id).is_empty() {
-                    ui.label(RichText::new("El acceso Microsoft aún necesita que el desarrollador configure el registro de Luma.").size(12.0).color(Color32::from_rgb(240, 195, 125)));
-                }
-                ui.collapsing("Configuración del desarrollador", |ui| {
-                    ui.label(RichText::new("Client ID de Luma (se configura una sola vez; no es tu correo ni tu contraseña)").size(12.0).color(MUTED));
-                    ui.add_enabled(!self.busy, egui::TextEdit::singleline(&mut self.settings.client_id).desired_width(420.0).hint_text("Usar el Client ID incluido en la compilación"));
-                });
-                ui.horizontal(|ui| {
-                    if ui.add_enabled(!self.busy && !auth::configured_client_id(&self.settings.client_id).is_empty(), primary("Continuar con Microsoft")).clicked() {
-                        self.save_settings();
-                        let id = self.settings.client_id.clone();
-                        self.status = "Continúa en el navegador con tu cuenta Microsoft…".into();
-                        let cancel = Arc::new(AtomicBool::new(false));
-                        self.auth_cancel = Some(cancel.clone());
-                        self.work(move |tx| { let session = auth::login(&id, &tx, &cancel)?; tx.send(Event::SignedIn(session))?; Ok(()) });
-                    }
-                    if ui.add_enabled(!self.busy && self.settings.profile.as_ref().is_some_and(|p| !p.local), egui::Button::new("Cerrar sesión")).clicked() {
-                        self.session = None; self.settings.profile = model::Profile::offline(&self.settings.local_name).ok(); self.save_settings();
-                    }
-                });
-                ui.label(RichText::new("Tus contraseñas se introducen únicamente en Microsoft. Los tokens no se guardan en disco.").size(11.0).color(MUTED));
-                ui.add_space(8.0);
-                ui.separator();
-                ui.label(RichText::new("Perfil del launcher oficial · solo para jugar offline").size(12.0).color(MUTED));
-                if self.official.is_empty() {
-                    ui.label(RichText::new("No se encontraron perfiles guardados en .minecraft/launcher_accounts.json.").size(11.0).color(MUTED));
-                }
+    fn legacy_settings_page(&mut self, ui: &mut egui::Ui) {
+        ui.add_space(12.);
+        ui.heading("Añadir cuenta Microsoft");
+        ui.label("Continúa en tu navegador para elegir tu cuenta Microsoft.");
+        if auth::configured_client_id(&self.settings.client_id).is_empty() {
+            ui.label(RichText::new("El desarrollador todavía debe configurar el Client ID de Luma para habilitar Microsoft.").color(palette().muted));
+        }
+        ui.collapsing("Registro de Luma", |ui| {
+            ui.label("Client ID de la aplicación");
+            ui.text_edit_singleline(&mut self.settings.client_id);
+        });
+        if ui
+            .add_enabled(
+                !self.busy && !auth::configured_client_id(&self.settings.client_id).is_empty(),
+                primary("Añadir cuenta Microsoft"),
+            )
+            .clicked()
+        {
+            self.save_settings();
+            let id = self.settings.client_id.clone();
+            let cancel = Arc::new(AtomicBool::new(false));
+            self.auth_cancel = Some(cancel.clone());
+            self.work(move |tx| {
+                let session = auth::login(&id, &tx, &cancel)?;
+                tx.send(Event::SignedIn(session))?;
+                Ok(())
+            });
+        }
+        ui.small("La contraseña se introduce en Microsoft. Los tokens permanecen en memoria durante esta sesión.");
+        if !self.official.is_empty() {
+            ui.collapsing("Perfiles del launcher oficial (solo offline)", |ui| {
                 for profile in self.official.clone() {
-                    if ui.add_enabled(!self.busy, egui::Button::new(format!("Importar a {}", profile.name))).clicked() {
-                        self.session = None;
+                    if ui.button(format!("Importar {}", profile.name)).clicked() {
+                        if !self.settings.accounts.iter().any(|p| p.id == profile.id) {
+                            self.settings.accounts.push(profile.clone());
+                        }
                         self.settings.profile = Some(profile);
                         self.settings.offline = true;
+                        self.session = None;
                         self.save_settings();
-                        self.status = "Perfil importado · instala una versión con conexión antes de jugar offline".into();
                     }
                 }
             });
-            card().show(ui, |ui| {
-                ui.set_min_width(ui.available_width());
-                ui.label(RichText::new("Rendimiento").size(18.0).strong());
-                ui.label(RichText::new("Memoria máxima de Minecraft").color(MUTED));
-                ui.add_enabled(!self.busy, egui::Slider::new(&mut self.settings.memory_mb, 1024..=16384).step_by(512.0).suffix(" MB"));
-                ui.label(RichText::new("4 GB es un buen punto de partida. Deja memoria disponible para Windows.").size(12.0).color(MUTED));
-                ui.add_space(8.0);
-                ui.label("Java personalizado (opcional)");
-                ui.add_enabled(!self.busy, egui::TextEdit::singleline(&mut self.settings.java).desired_width(550.0).hint_text("Automático · Luma descarga el Java adecuado para cada versión"));
-                ui.label(RichText::new("Para elegirlo manualmente, pega la ruta completa a java.exe.").size(12.0).color(MUTED));
-            });
-            card().show(ui, |ui| {
-                ui.set_min_width(ui.available_width());
-                ui.label(RichText::new("Archivos y mundos").size(18.0).strong());
-                ui.label(RichText::new(self.root.display().to_string()).size(12.0).color(MUTED));
-                ui.horizontal(|ui| {
-                    if ui.button("Abrir carpeta").clicked() { self.open_path(self.root.clone()); }
-                    if ui.add_enabled(!self.busy, primary("Guardar ajustes")).clicked() { self.save_settings(); self.status = "Ajustes guardados".into(); }
-                });
-            });
-        });
+        }
     }
 
     fn open_path(&mut self, path: PathBuf) {
@@ -649,7 +719,10 @@ impl Launcher {
         );
         ui.horizontal(|ui| {
             if ui.button("Abrir registros").clicked() {
-                let path = self.root.join("logs");
+                let path = self
+                    .active_installation()
+                    .map(|p| p.game_dir.join(".luma/logs"))
+                    .unwrap_or_else(|| self.root.join("logs"));
                 if let Err(e) = std::fs::create_dir_all(&path) {
                     self.error = Some(e.to_string());
                 } else {
@@ -667,11 +740,16 @@ impl Launcher {
                     if self.activity.is_empty() {
                         ui.label(
                             RichText::new("Todo en calma. Aquí aparecerá la actividad.")
-                                .color(MUTED),
+                                .color(palette().muted),
                         );
                     }
                     for line in &self.activity {
-                        ui.label(RichText::new(line).monospace().size(12.0).color(MUTED));
+                        ui.label(
+                            RichText::new(line)
+                                .monospace()
+                                .size(12.0)
+                                .color(palette().muted),
+                        );
                     }
                 });
         });
@@ -722,12 +800,36 @@ impl eframe::App for Launcher {
             self.error = previous_error;
         }
         self.drive_loader_query(ctx);
+        self.apply_appearance(ctx);
+        if self.game_running && self.settings.behavior.minimize && !self.workspace.minimized {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+            self.workspace.minimized = true;
+        }
+        if !self.game_running && (self.workspace.minimized || self.workspace.was_running) {
+            if self.settings.behavior.refocus {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+                ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+            }
+            self.workspace.minimized = false;
+            self.workspace.was_running = false;
+        }
+        if self.game_running {
+            self.workspace.was_running = true;
+        }
+        if let Some(path) = self.update_staged.take() {
+            match crate::distribution::apply_update(&path) {
+                Ok(()) => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
+                Err(e) => self.error = Some(e.to_string()),
+            }
+        }
         self.topbar(ctx);
-        self.sidebar(ctx);
+        if self.settings.behavior.sidebar_visible {
+            self.sidebar(ctx);
+        }
         egui::TopBottomPanel::bottom("status")
             .frame(
                 egui::Frame::new()
-                    .fill(PANEL)
+                    .fill(palette().panel)
                     .inner_margin(egui::Margin::symmetric(20, 9)),
             )
             .show(ctx, |ui| {
@@ -738,7 +840,11 @@ impl eframe::App for Launcher {
                         let (rect, _) = ui.allocate_exact_size(Vec2::splat(12.0), Sense::hover());
                         ui.painter().circle_filled(rect.center(), 3.0, MINT);
                     }
-                    ui.label(RichText::new(&self.status).size(12.0).color(MUTED));
+                    ui.label(
+                        RichText::new(&self.status)
+                            .size(12.0)
+                            .color(palette().muted),
+                    );
                 });
                 if let Some((done, total)) = self.progress {
                     ui.add(
@@ -750,7 +856,7 @@ impl eframe::App for Launcher {
             });
         self.context_panel(ctx);
         egui::CentralPanel::default()
-            .frame(egui::Frame::new().fill(BG).inner_margin(24.0))
+            .frame(egui::Frame::new().fill(palette().bg).inner_margin(24.0))
             .show(ctx, |ui| {
                 if let Some(error) = self.error.clone() {
                     egui::Frame::new()
@@ -777,7 +883,9 @@ impl eframe::App for Launcher {
                     }
                     Page::Versions => self.versions(ui),
                     Page::Profiles => self.profiles_page(ui),
-                    Page::Settings => self.settings_page(ui),
+                    Page::Settings => self.launcher_settings(ui),
+                    Page::Instance => self.instance_page(ui),
+                    Page::Screenshots => self.screenshots_page(ui),
                     Page::Activity => self.activity_page(ui),
                 }
             });
@@ -793,7 +901,7 @@ impl eframe::App for Launcher {
                     ui.label(
                         RichText::new("Si ya tienes sesión allí, Microsoft puede usar esa cuenta.")
                             .size(12.0)
-                            .color(MUTED),
+                            .color(palette().muted),
                     );
                     ui.horizontal(|ui| {
                         if ui.button("Volver a abrir Microsoft").clicked() {
@@ -811,11 +919,12 @@ impl eframe::App for Launcher {
                     ui.label(
                         RichText::new("Esta ventana se cerrará al terminar la verificación.")
                             .size(12.0)
-                            .color(MUTED),
+                            .color(palette().muted),
                     );
                 });
         }
         self.instance_windows(ctx);
+        self.workspace_windows(ctx);
         if let Some((id, mut name)) = self.rename_profile.clone() {
             egui::Window::new("Renombrar perfil")
                 .collapsible(false)
@@ -856,20 +965,24 @@ impl eframe::App for Launcher {
 
 fn card() -> egui::Frame {
     egui::Frame::new()
-        .fill(CARD)
+        .fill(palette().card)
         .corner_radius(12.0)
         .inner_margin(18.0)
 }
 
 fn primary(label: &str) -> egui::Button<'_> {
-    egui::Button::new(RichText::new(label).strong().color(BG))
-        .fill(MINT)
-        .corner_radius(9.0)
+    egui::Button::new(
+        RichText::new(label)
+            .strong()
+            .color(Color32::from_rgb(18, 30, 24)),
+    )
+    .fill(MINT)
+    .corner_radius(9.0)
 }
 
 fn title(ui: &mut egui::Ui, heading: &str, description: &str) {
     ui.label(RichText::new(heading).size(29.0).strong());
-    ui.label(RichText::new(description).color(MUTED));
+    ui.label(RichText::new(description).color(palette().muted));
     ui.add_space(18.0);
 }
 

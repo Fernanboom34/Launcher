@@ -23,7 +23,7 @@ pub fn load(root: &Path) -> Result<Vec<GameProfile>> {
     model::read_json(&path)
 }
 
-fn save(root: &Path, profiles: &[GameProfile]) -> Result<()> {
+pub fn save(root: &Path, profiles: &[GameProfile]) -> Result<()> {
     model::write_json(&root.join("profiles.json"), &profiles)
 }
 
@@ -130,10 +130,27 @@ fn detected_profile(
         minecraft,
         version_id: id.into(),
         loader,
-        loader_version: String::new(),
+        loader_version: metadata["libraries"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|l| l["name"].as_str())
+            .find_map(|coordinate| {
+                let expected = match loader {
+                    Loader::Fabric => "net.fabricmc:fabric-loader:",
+                    Loader::NeoForge => "net.neoforged:neoforge:",
+                    Loader::Forge => "net.minecraftforge:forge:",
+                    Loader::Vanilla => return None,
+                };
+                coordinate
+                    .strip_prefix(expected)
+                    .map(|v| v.split(':').next().unwrap_or(v).to_string())
+            })
+            .unwrap_or_default(),
         storage_dir: storage.into(),
         game_dir,
         imported,
+        runtime: Some(default_runtime(root)),
     })
 }
 
@@ -166,6 +183,8 @@ fn discover_sources(
     mut profiles: Vec<GameProfile>,
     sources: Vec<PathBuf>,
 ) -> Result<Vec<GameProfile>> {
+    let ignored: HashSet<String> =
+        model::read_json(&root.join("ignored-profiles.json")).unwrap_or_default();
     let original = profiles.clone();
     let mut seen_sources = HashSet::new();
     for source in sources {
@@ -183,6 +202,9 @@ fn discover_sources(
                         let Some(id) = entry["lastVersionId"].as_str() else {
                             continue;
                         };
+                        if ignored.contains(&source_key(&source, id)) {
+                            continue;
+                        }
                         let game = entry["gameDir"]
                             .as_str()
                             .map(PathBuf::from)
@@ -214,6 +236,9 @@ fn discover_sources(
         if let Ok(entries) = fs::read_dir(source.join("versions")) {
             for entry in entries.filter_map(Result::ok) {
                 let id = entry.file_name().to_string_lossy().into_owned();
+                if ignored.contains(&source_key(&source, &id)) {
+                    continue;
+                }
                 if profiles
                     .iter()
                     .any(|p| p.storage_dir == source && p.version_id == id)
@@ -515,8 +540,22 @@ fn create_inner(
         !request.name.trim().is_empty() && request.name.chars().count() <= 80,
         "Escribe un nombre para el perfil de hasta 80 caracteres."
     );
+    install_profile(root, request, settings, local_jar, None, tx)
+}
+
+fn install_profile(
+    root: &Path,
+    request: &ProfileRequest,
+    settings: &Settings,
+    local_jar: Option<&Path>,
+    existing: Option<GameProfile>,
+    tx: &Sender<Event>,
+) -> Result<GameProfile> {
     let vanilla = vanilla_version(&request.minecraft)?;
-    let id = unique_id()?;
+    let id = existing
+        .as_ref()
+        .map(|p| p.id.clone())
+        .unwrap_or(unique_id()?);
     let mut profile = GameProfile {
         id: id.clone(),
         name: request.name.trim().into(),
@@ -527,9 +566,26 @@ fn create_inner(
         storage_dir: root.into(),
         game_dir: root.join("instances").join(&id),
         imported: false,
+        runtime: Some({
+            let mut r = settings.runtime.clone();
+            r.memory_mb = settings.memory_mb;
+            r.java = settings.java.clone();
+            r
+        }),
     };
+    let updating = existing.is_some();
+    if let Some(previous) = existing {
+        profile.game_dir = previous.game_dir;
+        profile.runtime = previous.runtime;
+        profile.imported = previous.imported;
+    }
     let mut scoped_settings = settings.clone();
     scoped_settings.game_directory = Some(profile.game_dir.clone());
+    if let Some(runtime) = &profile.runtime {
+        scoped_settings.runtime = runtime.clone();
+        scoped_settings.memory_mb = runtime.memory_mb;
+        scoped_settings.java = runtime.java.clone();
+    }
     let base = engine::prepare(root, &vanilla, &scoped_settings, false, tx)?;
     if request.loader == Loader::Fabric {
         model::safe_component(&request.loader_version)?;
@@ -622,9 +678,12 @@ fn create_inner(
         fs::create_dir_all(profile.game_dir.join("mods"))?;
     }
     let mut list = load(root)?;
+    list.retain(|p| p.id != profile.id);
     list.push(profile.clone());
     save(root, &list)?;
-    tx.send(Event::ProfileCreated(profile.clone()))?;
+    if !updating {
+        tx.send(Event::ProfileCreated(Box::new(profile.clone())))?;
+    }
     tx.send(Event::Profiles(list))?;
     tx.send(Event::Status(format!(
         "{} listo · {} {}",
@@ -761,6 +820,23 @@ pub fn cli(args: &[String]) -> Result<()> {
                     .find(|p| &p.id == id)
                     .context("Perfil no encontrado")?;
                 settings.game_directory = Some(profile.game_dir.clone());
+                settings.runtime = profile
+                    .runtime
+                    .clone()
+                    .unwrap_or_else(|| default_runtime(&root));
+                settings.memory_mb = settings.runtime.memory_mb;
+                settings.java = settings.runtime.java.clone();
+                if command == "--repair-profile" {
+                    settings.offline = false;
+                    let request = ProfileRequest {
+                        name: profile.name.clone(),
+                        minecraft: profile.minecraft.clone(),
+                        loader: profile.loader,
+                        loader_version: profile.loader_version.clone(),
+                    };
+                    update_installation(&root, profile, &request, &settings, &tx)?;
+                    return Ok(());
+                }
                 let offline = command != "--install-profile";
                 let version = launch_version(&profile)?;
                 let installation =
@@ -790,9 +866,120 @@ pub fn cli(args: &[String]) -> Result<()> {
     result
 }
 
+pub fn default_runtime(root: &Path) -> model::RuntimeOptions {
+    let settings: Settings = model::read_json(&root.join("settings.json")).unwrap_or_default();
+    let mut runtime = settings.runtime;
+    runtime.memory_mb = settings.memory_mb;
+    runtime.java = settings.java;
+    runtime
+}
+pub fn update_installation(
+    root: &Path,
+    profile: GameProfile,
+    request: &ProfileRequest,
+    settings: &Settings,
+    tx: &Sender<Event>,
+) -> Result<()> {
+    anyhow::ensure!(
+        !settings.offline,
+        "Conéctate para editar o reparar la instalación"
+    );
+    // Installer outputs and dependencies live in Luma, never overwrite an external launcher's metadata.
+    let mut profile = profile;
+    profile.storage_dir = root.into();
+    install_profile(root, request, settings, None, Some(profile), tx)?;
+    Ok(())
+}
+pub fn duplicate(root: &Path, source: &GameProfile) -> Result<Vec<GameProfile>> {
+    let mut copy = source.clone();
+    copy.id = unique_id()?;
+    copy.name = format!("{} (copia)", source.name);
+    copy.imported = false;
+    copy.game_dir = root.join("instances").join(&copy.id);
+    fn copy_tree(from: &Path, to: &Path) -> Result<()> {
+        fs::create_dir_all(to)?;
+        if !from.is_dir() {
+            return Ok(());
+        }
+        for e in fs::read_dir(from)? {
+            let e = e?;
+            let t = e.file_type()?;
+            anyhow::ensure!(!t.is_symlink(), "No se duplican enlaces simbólicos");
+            if t.is_dir() {
+                copy_tree(&e.path(), &to.join(e.file_name()))?
+            } else if t.is_file() {
+                fs::copy(e.path(), to.join(e.file_name()))?;
+            }
+        }
+        Ok(())
+    }
+    copy_tree(&source.game_dir, &copy.game_dir)?;
+    let mut list = load(root)?;
+    list.push(copy);
+    save(root, &list)?;
+    Ok(list)
+}
+pub fn remove(root: &Path, id: &str) -> Result<Vec<GameProfile>> {
+    let mut list = load(root)?;
+    let mut ignored: HashSet<String> =
+        model::read_json(&root.join("ignored-profiles.json")).unwrap_or_default();
+    if let Some(p) = list.iter().find(|p| p.id == id) {
+        ignored.insert(source_key(&p.storage_dir, &p.version_id));
+    }
+    model::write_json(&root.join("ignored-profiles.json"), &ignored)?;
+    // Only remove the registration. Worlds and files remain recoverable on disk.
+    list.retain(|p| p.id != id);
+    save(root, &list)?;
+    Ok(list)
+}
+
+fn source_key(storage: &Path, version: &str) -> String {
+    format!("{}|{}", storage.to_string_lossy().to_lowercase(), version)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn instance_memory_is_a_snapshot_and_removal_preserves_worlds() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("target/test-data")
+            .join(unique_id().unwrap());
+        let mut settings = Settings {
+            memory_mb: 6144,
+            ..Default::default()
+        };
+        model::write_json(&root.join("settings.json"), &settings).unwrap();
+        model::write_json(&root.join("versions/fabric-snapshot/fabric-snapshot.json"),&json!({"id":"fabric-snapshot","inheritsFrom":"1.21.1","libraries":[{"name":"net.fabricmc:fabric-loader:0.16.0"}]})).unwrap();
+        let profile =
+            detected_profile(&root, &root, "fabric-snapshot", Some("My instance"), None).unwrap();
+        fs::create_dir_all(profile.game_dir.join("saves/world")).unwrap();
+        fs::write(profile.game_dir.join("saves/world/level.dat"), b"world").unwrap();
+        save(&root, std::slice::from_ref(&profile)).unwrap();
+        settings.memory_mb = 8192;
+        model::write_json(&root.join("settings.json"), &settings).unwrap();
+        assert_eq!(
+            load(&root).unwrap()[0].runtime.as_ref().unwrap().memory_mb,
+            6144
+        );
+        assert_eq!(default_runtime(&root).memory_mb, 8192);
+        let copied = duplicate(&root, &profile).unwrap();
+        assert_eq!(copied.len(), 2);
+        assert_ne!(copied[0].game_dir, copied[1].game_dir);
+        assert_eq!(
+            fs::read(copied[1].game_dir.join("saves/world/level.dat")).unwrap(),
+            b"world"
+        );
+        remove(&root, &profile.id).unwrap();
+        assert_eq!(
+            fs::read(profile.game_dir.join("saves/world/level.dat")).unwrap(),
+            b"world"
+        );
+        remove(&root, &copied[1].id).unwrap();
+        let found = discover_sources(&root, Vec::new(), vec![root.clone()]).unwrap();
+        assert!(found.is_empty());
+    }
 
     #[test]
     fn detects_loaders_without_confusing_forge_and_neoforge() {

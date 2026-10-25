@@ -4,6 +4,7 @@ use super::*;
 pub(super) enum Glyph {
     Play,
     Grid,
+    Image,
     Download,
     Settings,
     Activity,
@@ -27,6 +28,17 @@ pub(super) fn glyph(p: &egui::Painter, rect: Rect, icon: Glyph, color: Color32) 
                 color,
                 Stroke::NONE,
             ));
+        }
+        Glyph::Image => {
+            p.rect_stroke(
+                Rect::from_min_max(pt(-0.95, -0.9), pt(0.95, 0.9)),
+                2.,
+                s,
+                egui::StrokeKind::Inside,
+            );
+            p.circle_stroke(pt(-0.35, -0.35), r * 0.2, s);
+            line((-0.8, 0.7), (-0.05, -0.1));
+            line((-0.05, -0.1), (0.85, 0.7));
         }
         Glyph::Grid => {
             for (x, y) in [(-0.95, -0.95), (0.15, -0.95), (-0.95, 0.15), (0.15, 0.15)] {
@@ -114,9 +126,9 @@ pub(super) fn icon_button(
             rect,
             10.,
             if selected {
-                Color32::from_rgb(35, 69, 52)
+                palette().soft
             } else {
-                HOVER
+                palette().hover
             },
         );
     }
@@ -125,11 +137,11 @@ pub(super) fn icon_button(
         rect.shrink(size * 0.19),
         icon,
         if !enabled {
-            MUTED.gamma_multiply(0.4)
+            palette().muted.gamma_multiply(0.4)
         } else if selected {
             MINT
         } else {
-            MUTED
+            palette().muted
         },
     );
     response.on_hover_text(label)
@@ -271,12 +283,12 @@ pub(super) fn cover(
                 p.rect_filled(
                     Rect::from_min_size(pt(x, -0.37), Vec2::splat(u * 0.16)),
                     0.,
-                    BG,
+                    palette().bg,
                 );
             }
             p.add(egui::Shape::convex_polygon(
                 vec![pt(-0.16, 0.18), pt(0.2, 0.18), pt(0., 0.45)],
-                BG,
+                palette().bg,
                 Stroke::NONE,
             ));
         }

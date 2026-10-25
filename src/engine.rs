@@ -757,14 +757,32 @@ pub fn launch(
             crate::auth::configured_client_id(&settings.client_id).into(),
         ),
         ("auth_xuid", String::new()),
-        ("resolution_width", "1280".into()),
-        ("resolution_height", "720".into()),
+        ("resolution_width", settings.runtime.width.to_string()),
+        ("resolution_height", settings.runtime.height.to_string()),
     ]
     .into_iter()
     .map(|(k, v)| (k.to_owned(), v))
     .collect();
     let mut command = Command::new(&java);
     command.current_dir(&game);
+    run_hook(&settings.runtime.before, &game)?;
+    for line in settings
+        .runtime
+        .environment
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+    {
+        let (key, value) = line
+            .split_once('=')
+            .context("Variable de entorno: usa NOMBRE=valor por línea")?;
+        anyhow::ensure!(
+            !key.is_empty() && !key.contains(['\0', '=']),
+            "Nombre de variable inválido"
+        );
+        command.env(key.trim(), value);
+    }
+    command
+        .args(shell_words::split(&settings.runtime.jvm_args).context("Argumentos Java inválidos")?);
     hide_console(&mut command);
     // Conserva el acceso token únicamente en memoria; nunca se guarda la línea de comando.
     command
@@ -805,7 +823,25 @@ pub fn launch(
     } else {
         command.args(arguments(&metadata["arguments"]["game"], &variables)?);
     }
-    let log_root = model::root().join("logs");
+    if settings.runtime.fullscreen {
+        command.arg("--fullscreen");
+    }
+    if let Some(world) = &settings.quick_world {
+        anyhow::ensure!(
+            supports_quick_play(&metadata),
+            "El acceso directo a mundos requiere Minecraft 1.20 o posterior"
+        );
+        anyhow::ensure!(
+            matches!(
+                std::path::Path::new(world).components().next(),
+                Some(std::path::Component::Normal(_))
+            ) && std::path::Path::new(world).components().count() == 1
+                && game.join("saves").join(world).join("level.dat").is_file(),
+            "Mundo inválido"
+        );
+        command.args(["--quickPlaySingleplayer", world]);
+    }
+    let log_root = game.join(".luma/logs");
     fs::create_dir_all(&log_root)?;
     let log = fs::File::create(log_root.join("game-latest.log"))?;
     command
@@ -815,6 +851,7 @@ pub fn launch(
     tx.send(Event::GameStarted)?;
     let status = child.wait()?;
     tx.send(Event::GameExited(status.code()))?;
+    run_hook(&settings.runtime.after, &game)?;
     anyhow::ensure!(
         status.success(),
         "Minecraft terminó con código {:?}. Revisa {}",
@@ -830,6 +867,25 @@ fn hide_console(command: &mut Command) {
         use std::os::windows::process::CommandExt;
         command.creation_flags(0x08000000);
     }
+}
+
+fn run_hook(text: &str, game: &Path) -> Result<()> {
+    if text.trim().is_empty() {
+        return Ok(());
+    }
+    let mut command = Command::new("cmd.exe");
+    command.args(["/D", "/S", "/C", text]).current_dir(game);
+    hide_console(&mut command);
+    anyhow::ensure!(
+        command.status()?.success(),
+        "El comando de inicio o cierre terminó con error"
+    );
+    Ok(())
+}
+pub fn supports_quick_play(metadata: &Value) -> bool {
+    metadata["arguments"]["game"]
+        .to_string()
+        .contains("quickPlaySingleplayer")
 }
 
 #[cfg(test)]

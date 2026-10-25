@@ -1,0 +1,38 @@
+name: Publicar Luma
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verificar y compilar
+        shell: pwsh
+        env:
+          LUMA_MICROSOFT_CLIENT_ID: ${{ secrets.LUMA_MICROSOFT_CLIENT_ID }}
+        run: |
+          cargo fmt --check
+          cargo clippy --locked --all-targets -- -D warnings
+          if ($LASTEXITCODE) { throw 'Clippy falló' }
+          cargo test --locked
+          if ($LASTEXITCODE) { throw 'Las pruebas fallaron' }
+          ./build.ps1
+      - name: Publicar ejecutables y manifiesto
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = (Get-Content artifacts/luma-release.json | ConvertFrom-Json).version
+          $tag = "v$version"
+          if ('${{ github.ref_type }}' -eq 'tag' -and '${{ github.ref_name }}' -ne $tag) { throw 'El tag no coincide con Cargo.toml' }
+          gh release view $tag --repo '${{ github.repository }}' *> $null
+          if ($LASTEXITCODE) {
+            gh release create $tag "artifacts/Luma-$version.exe" artifacts/Luma-Setup.exe artifacts/luma-release.json --repo '${{ github.repository }}' --target '${{ github.sha }}' --title "Luma $version" --generate-notes
+          } else {
+            gh release upload $tag "artifacts/Luma-$version.exe" artifacts/Luma-Setup.exe artifacts/luma-release.json --repo '${{ github.repository }}' --clobber
+          }
+          if ($LASTEXITCODE) { throw 'No se pudo publicar el release' }

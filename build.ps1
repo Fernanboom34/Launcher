@@ -33,6 +33,14 @@ try {
         Write-Output 'Luma.exe está en uso o no se pudo reemplazar. Utiliza el ejecutable con número de versión.'
     }
     Write-Output "Listo: $versionedExe"
+    Copy-Item -LiteralPath (Join-Path $projectRoot "target\$Profile\luma-setup.exe") -Destination (Join-Path $output 'Luma-Setup.exe') -Force
+    $manifest = [ordered]@{
+        version = $packageVersion
+        url = "https://github.com/Fernanboom34/Launcher/releases/download/v$packageVersion/Luma-$packageVersion.exe"
+        sha256 = (Get-FileHash -LiteralPath $versionedExe -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
+    [System.IO.File]::WriteAllText((Join-Path $output 'luma-release.json'), ($manifest | ConvertTo-Json), (New-Object System.Text.UTF8Encoding($false)))
+    Write-Output 'Listo: artifacts\Luma-Setup.exe y artifacts\luma-release.json'
 }
 finally {
     $env:LUMA_MICROSOFT_CLIENT_ID = $originalMicrosoftClientId

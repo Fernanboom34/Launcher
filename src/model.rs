@@ -43,6 +43,11 @@ pub struct Settings {
     pub local_name: String,
     pub active_installation: String,
     pub game_directory: Option<PathBuf>,
+    pub accounts: Vec<Profile>,
+    pub appearance: Appearance,
+    pub behavior: Behavior,
+    pub runtime: RuntimeOptions,
+    pub quick_world: Option<String>,
     pub instance_styles: std::collections::BTreeMap<String, InstanceStyle>,
 }
 
@@ -58,6 +63,11 @@ impl Default for Settings {
             local_name: "Jugador".into(),
             active_installation: String::new(),
             game_directory: None,
+            accounts: Vec::new(),
+            appearance: Default::default(),
+            behavior: Default::default(),
+            runtime: Default::default(),
+            quick_world: None,
             instance_styles: Default::default(),
         }
     }
@@ -71,6 +81,8 @@ pub struct InstanceStyle {
     pub favorite: bool,
     pub last_played: u64,
     pub created_at: u64,
+    pub hidden_home: bool,
+    pub play_seconds: u64,
 }
 
 impl Settings {
@@ -196,6 +208,8 @@ pub struct GameProfile {
     pub game_dir: PathBuf,
     #[serde(default)]
     pub imported: bool,
+    #[serde(default)]
+    pub runtime: Option<RuntimeOptions>,
 }
 
 #[derive(Clone)]
@@ -226,8 +240,11 @@ pub enum Event {
     SignedIn(Session),
     Installed(String),
     Profiles(Vec<GameProfile>),
-    ProfileCreated(GameProfile),
+    ProfileCreated(Box<GameProfile>),
     LoaderVersions(Loader, String, Vec<String>),
+    UpdateAvailable(crate::distribution::Release),
+    UpdateReady(PathBuf),
+    EditorLoaderVersions(Vec<String>),
     GameStarted,
     GameExited(Option<i32>),
     Done,
@@ -235,6 +252,9 @@ pub enum Event {
 }
 
 pub fn root() -> PathBuf {
+    if let Some(path) = std::env::var_os("LUMA_DATA_DIR") {
+        return PathBuf::from(path);
+    }
     directories::ProjectDirs::from("dev", "Luma", "LumaLauncher")
         .expect("No se encontró el directorio de datos del usuario")
         .data_local_dir()
@@ -273,4 +293,71 @@ pub fn safe_component(value: &str) -> Result<&str> {
         "Identificador de versión no válido"
     );
     Ok(value)
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RuntimeOptions {
+    pub memory_mb: u32,
+    pub java: String,
+    pub jvm_args: String,
+    pub environment: String,
+    pub width: u32,
+    pub height: u32,
+    pub fullscreen: bool,
+    pub before: String,
+    pub after: String,
+}
+impl Default for RuntimeOptions {
+    fn default() -> Self {
+        Self {
+            memory_mb: 4096,
+            java: String::new(),
+            jvm_args: String::new(),
+            environment: String::new(),
+            width: 1280,
+            height: 720,
+            fullscreen: false,
+            before: String::new(),
+            after: String::new(),
+        }
+    }
+}
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Appearance {
+    pub theme: usize,
+    pub advanced: bool,
+    pub decorations: bool,
+}
+impl Default for Appearance {
+    fn default() -> Self {
+        Self {
+            theme: 0,
+            advanced: true,
+            decorations: true,
+        }
+    }
+}
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Behavior {
+    pub minimize: bool,
+    pub refocus: bool,
+    pub sidebar_button: bool,
+    pub sidebar_visible: bool,
+    pub compact: bool,
+    pub playtime: bool,
+}
+impl Default for Behavior {
+    fn default() -> Self {
+        Self {
+            minimize: false,
+            refocus: true,
+            sidebar_button: false,
+            sidebar_visible: true,
+            compact: false,
+            playtime: true,
+        }
+    }
 }

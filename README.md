@@ -2,6 +2,25 @@
 
 Launcher nativo de **Minecraft Java Edition para Windows x64**, escrito en Rust con egui. Tema oscuro, acentos menta y un paisaje original dibujado con vectores, sin navegador integrado.
 
+## Novedades 0.6.0
+
+- Páginas de instancia con contenido activable, explorador de archivos, mundos y registros en vivo. Los menús de clic derecho incluyen acciones de biblioteca, carpetas, duplicación, portada y accesos directos.
+- Configuración por instancia: versión del juego y loader, reparación, Java, memoria, argumentos, variables de entorno, ventana y comandos antes/después del juego.
+- Inicio continúa el mundo más reciente usando Quick Play en Minecraft 1.20 o posterior. En versiones antiguas inicia la instancia; puedes entrar al mundo desde el juego.
+- Temas oscuro, claro, OLED y del sistema; sombras/animaciones, marco de ventana y comportamiento del launcher. La memoria predeterminada se copia al crear cada instancia: modificarla no cambia las existentes.
+- Selector de cuentas locales y Microsoft; galería de capturas de todas las instancias.
+- Instalador descargable y aviso superior de actualizaciones mediante GitHub Releases. Las descargas verifican SHA-256 antes de ejecutarse.
+
+## Instalador y actualizaciones
+
+Descarga `Luma-Setup.exe` del [último release público](https://github.com/Fernanboom34/Launcher/releases/latest). Instala el ejecutable en `%LOCALAPPDATA%/Programs/Luma` y permite crear un acceso directo al escritorio. El mismo instalador consulta siempre el release estable más reciente. Para una instalación sin interfaz: `Luma-Setup.exe --install-to "C:/Mi carpeta/Luma"`.
+
+Luma consulta actualizaciones al abrir con conexión. Si encuentra una versión mayor, muestra **Nueva versión disponible · Actualizar** en la parte superior. Al pulsarlo descarga y verifica la nueva aplicación, cierra Luma, reemplaza el ejecutable y vuelve a abrirlo. Conserva una copia `.previous` para recuperar el ejecutable si falla el reemplazo. Los datos del jugador viven en otra carpeta.
+
+Los archivos distribuidos son exclusivamente el launcher, el instalador y `luma-release.json`. **No incluyen JAR, Java, mundos, mods ni perfiles preconstruidos**. Todo el contenido de Minecraft y sus loaders se descarga de sus proveedores al crear o reparar una instancia. Una instalación limpia empieza sin instancias; detectar una instalación existente solo registra sus archivos locales.
+
+Para publicar una nueva versión cambia `Cargo.toml`, actualiza `Cargo.lock`, confirma los cambios y crea el tag `vX.Y.Z`. `.github/workflows/release.yml` verifica, compila y publica ambos ejecutables y el manifiesto. También admite ejecución manual desde Actions. El secreto opcional `LUMA_MICROSOFT_CLIENT_ID` incorpora el registro Microsoft propio en las compilaciones. `build.ps1` genera los tres archivos localmente en `artifacts/`.
+
 ## Abrir
 
 Ejecuta `artifacts/Luma.exe` si ya está compilado. No requiere instalar Rust para utilizarlo.
@@ -19,7 +38,7 @@ El propio juego puede intentar acceder a servicios de red; no se modifican sus a
 
 La pantalla **Inicio** reúne accesos rápidos y una biblioteca de tarjetas. El botón de cuadrícula del menú lateral abre la **Biblioteca** completa. Puedes buscar por nombre, versión o cargador, filtrar favoritos y ordenar por actividad, nombre o Minecraft.
 
-Cada tarjeta permite jugar directamente con su botón verde o con doble clic. Un clic selecciona la instancia y muestra sus opciones en el panel derecho. El menú de la tarjeta permite abrir sus carpetas, marcarla como favorita, renombrarla y personalizar su portada. Los iconos laterales también dan acceso a tus primeras instancias.
+Cada tarjeta permite jugar directamente con su botón verde o con doble clic. Un clic abre la página de la instancia con Contenido, Archivos, Mundos, Registros y Configuración. El menú de la tarjeta permite abrir sus carpetas, marcarla como favorita, renombrarla y personalizar su portada. Los iconos laterales también dan acceso a tus primeras instancias.
 
 En **Nueva instancia** puedes crear instalaciones **Vanilla, Fabric, NeoForge y Forge**:
 
@@ -55,7 +74,7 @@ El acceso directo ahora abre automáticamente el navegador con OAuth y PKCE: pul
 powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -MicrosoftClientId "ID-DE-LA-APLICACION"
 ```
 
-El ID es público y se integra en el ejecutable mediante `LUMA_MICROSOFT_CLIENT_ID`. Para desarrollo también puede introducirse en **Ajustes → Configuración del desarrollador**. El botón queda deshabilitado y se explica el motivo si esta compilación no tiene ID configurado. La copia entregada no incluye un registro real: falta registrar Luma para activar el acceso Microsoft.
+El ID es público y se integra en el ejecutable mediante `LUMA_MICROSOFT_CLIENT_ID`. Para desarrollo también puede introducirse en **Ajustes → Cuentas → Registro de Luma**. El botón queda deshabilitado y se explica el motivo si esta compilación no tiene ID configurado. La copia entregada no incluye un registro real: falta registrar Luma para activar el acceso Microsoft.
 
 Las APIs de Minecraft pueden requerir aprobación de la aplicación por parte de Microsoft/Mojang; crear un Client ID no garantiza acceso. No se incluye un ID de otro launcher. El perfil local funciona sin configurar esta integración. Una cuenta con Minecraft Java y un perfil creado es necesaria para la autenticación directa.
 
@@ -76,7 +95,7 @@ También puedes ejecutar:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1
 ```
 
-El script produce `artifacts/Luma.exe`. Si existe `.tools/mingw64/bin/gcc.exe` y está instalado el toolchain Rust `stable-x86_64-pc-windows-gnu`, utiliza ese compilador portátil. En esta carpeta se preparó esa alternativa para no necesitar Visual Studio. `.tools` no forma parte del código fuente ni del ejecutable distribuido.
+El script produce `artifacts/Luma.exe`, la copia con versión, `artifacts/Luma-Setup.exe` y `artifacts/luma-release.json`. Si existe `.tools/mingw64/bin/gcc.exe` y está instalado el toolchain Rust `stable-x86_64-pc-windows-gnu`, utiliza ese compilador portátil. En esta carpeta se preparó esa alternativa para no necesitar Visual Studio. `.tools` no forma parte del código fuente ni del ejecutable distribuido.
 
 ```powershell
 cargo test --locked
@@ -131,3 +150,13 @@ El catálogo abarca las versiones que **Mojang publique con un cliente descargab
 - [Instalador oficial de Forge](https://github.com/MinecraftForge/Installer)
 
 Proyecto independiente, sin afiliación con Mojang o Microsoft. Minecraft es una marca de sus respectivos titulares.
+
+## Gestión de instancias
+
+En **Contenido**, carga mods, resource packs, shaders o data packs ZIP. Para estos últimos elige el mundo de destino. El interruptor de resource packs modifica la selección en `options.txt`; mods y archivos ZIP desactivados se conservan con `.disabled`. Los packs en carpetas se guardan temporalmente fuera del directorio que examina el juego. Los shaders quedan disponibles o deshabilitados; su selección concreta se realiza con el mod de shaders dentro de Minecraft. No se cambia contenido mientras el juego está en ejecución.
+
+**Quitar contenido** mueve el archivo a `.luma/removed` dentro de la instancia. **Eliminar de la biblioteca** retira su registro y conserva los archivos del juego. Las carpetas de mundos permanecen intactas. **Duplicar** copia la carpeta de juego y mantiene bibliotecas y recursos compartidos.
+
+Los registros del proceso están en `<instancia>/.luma/logs/game-latest.log`; los que genera Minecraft siguen en `logs/`. La página Registros admite búsqueda, filtros de nivel y archivos históricos `.log`/`.txt`. Se mantiene en pantalla una cola de hasta 512 KiB para no cargar registros enormes.
+
+`LUMA_DATA_DIR` permite usar una carpeta de datos independiente para pruebas o instalaciones separadas. No modifica la ubicación habitual si no está definido.
