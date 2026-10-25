@@ -240,6 +240,7 @@ pub enum Event {
     SignedIn(Session),
     Installed(String),
     Profiles(Vec<GameProfile>),
+    InstanceRemoved(String),
     ProfileCreated(Box<GameProfile>),
     LoaderVersions(Loader, String, Vec<String>),
     UpdateAvailable(crate::distribution::Release),

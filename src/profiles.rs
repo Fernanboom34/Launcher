@@ -24,6 +24,11 @@ pub fn load(root: &Path) -> Result<Vec<GameProfile>> {
 }
 
 pub fn save(root: &Path, profiles: &[GameProfile]) -> Result<()> {
+    if root == crate::cleanup::data_root() {
+        for profile in profiles {
+            crate::cleanup::remember_game_directory(&profile.game_dir, &profile.storage_dir)?;
+        }
+    }
     model::write_json(&root.join("profiles.json"), &profiles)
 }
 
@@ -924,6 +929,9 @@ pub fn remove(root: &Path, id: &str) -> Result<Vec<GameProfile>> {
     let mut ignored: HashSet<String> =
         model::read_json(&root.join("ignored-profiles.json")).unwrap_or_default();
     if let Some(p) = list.iter().find(|p| p.id == id) {
+        if root == crate::cleanup::data_root() {
+            crate::cleanup::remember_game_directory(&p.game_dir, &p.storage_dir)?;
+        }
         ignored.insert(source_key(&p.storage_dir, &p.version_id));
     }
     model::write_json(&root.join("ignored-profiles.json"), &ignored)?;
@@ -933,6 +941,39 @@ pub fn remove(root: &Path, id: &str) -> Result<Vec<GameProfile>> {
     Ok(list)
 }
 
+pub fn deletion_directory(root: &Path, id: &str) -> Result<PathBuf> {
+    let list = load(root)?;
+    let profile = list
+        .iter()
+        .find(|p| p.id == id)
+        .context("Instancia no encontrada")?;
+    let mut protected = vec![root.to_path_buf(), profile.storage_dir.clone()];
+    protected.extend(
+        list.iter()
+            .filter(|p| p.id != id)
+            .map(|p| p.game_dir.clone()),
+    );
+    let target = crate::cleanup::validate_private_directory(&profile.game_dir, &protected)?;
+    for other in list.iter().filter(|p| p.id != id) {
+        if let Ok(path) = other.game_dir.canonicalize() {
+            anyhow::ensure!(
+                !target.starts_with(path),
+                "La carpeta está dentro de otra instancia"
+            );
+        }
+    }
+    Ok(target)
+}
+pub fn remove_completely(root: &Path, id: &str, confirmed: &Path) -> Result<Vec<GameProfile>> {
+    let target = deletion_directory(root, id)?;
+    anyhow::ensure!(
+        target == confirmed,
+        "La carpeta de la instancia cambió. Revisa la confirmación de nuevo"
+    );
+    crate::cleanup::delete_verified_directory(&target, confirmed)?;
+    remove(root, id)
+}
+
 fn source_key(storage: &Path, version: &str) -> String {
     format!("{}|{}", storage.to_string_lossy().to_lowercase(), version)
 }
@@ -940,6 +981,37 @@ fn source_key(storage: &Path, version: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn complete_removal_deletes_only_the_confirmed_instance() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("target/test-data")
+            .join(unique_id().unwrap());
+        model::write_json(&root.join("versions/fabric-delete/fabric-delete.json"),&json!({"id":"fabric-delete","libraries":[{"name":"net.fabricmc:fabric-loader:0.16.0"}]})).unwrap();
+        let profile =
+            detected_profile(&root, &root, "fabric-delete", Some("Delete"), None).unwrap();
+        fs::create_dir_all(profile.game_dir.join("saves/world")).unwrap();
+        fs::write(profile.game_dir.join("saves/world/level.dat"), b"world").unwrap();
+        fs::create_dir_all(root.join("libraries")).unwrap();
+        fs::write(root.join("libraries/shared.jar"), b"shared").unwrap();
+        save(&root, std::slice::from_ref(&profile)).unwrap();
+        assert!(remove_completely(&root, &profile.id, &root).is_err());
+        assert!(profile.game_dir.exists());
+        let mut second = profile.clone();
+        second.id = "another".into();
+        save(&root, &[profile.clone(), second]).unwrap();
+        assert!(deletion_directory(&root, &profile.id).is_err());
+        save(&root, std::slice::from_ref(&profile)).unwrap();
+        let confirmed = deletion_directory(&root, &profile.id).unwrap();
+        assert!(remove_completely(&root, &profile.id, &confirmed)
+            .unwrap()
+            .is_empty());
+        assert!(!profile.game_dir.exists());
+        assert_eq!(
+            fs::read(root.join("libraries/shared.jar")).unwrap(),
+            b"shared"
+        );
+    }
 
     #[test]
     fn instance_memory_is_a_snapshot_and_removal_preserves_worlds() {

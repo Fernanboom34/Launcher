@@ -126,7 +126,7 @@ pub fn download(release: &Release, target: &Path, status: &Sender<String>) -> Re
 fn quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "''"))
 }
-fn powershell(script: &str, wait: bool) -> Result<()> {
+pub(crate) fn powershell(script: &str, wait: bool) -> Result<()> {
     use base64::Engine;
     let bytes: Vec<u8> = script.encode_utf16().flat_map(u16::to_le_bytes).collect();
     let mut cmd = Command::new("powershell.exe");
@@ -146,7 +146,7 @@ fn powershell(script: &str, wait: bool) -> Result<()> {
     if wait {
         anyhow::ensure!(
             cmd.status()?.success(),
-            "No se pudo crear el acceso directo"
+            "No se pudo completar la operación de Windows"
         );
     } else {
         cmd.spawn()?;

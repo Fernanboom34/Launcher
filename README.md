@@ -2,6 +2,16 @@
 
 Launcher nativo de **Minecraft Java Edition para Windows x64**, escrito en Rust con egui. Tema oscuro, acentos menta y un paisaje original dibujado con vectores, sin navegador integrado.
 
+## Novedades 0.6.1
+
+El instalador permite **instalar/actualizar** o **desinstalar** Luma. Al instalar registra la aplicación en Windows y guarda una copia de `Luma-Setup.exe` junto a `Luma.exe`. También puedes abrir el instalador descargado y entrar en **Desinstalar**; funciona sin conexión.
+
+La desinstalación muestra las rutas que borrará y pide confirmar la pérdida permanente de datos. Incluye la aplicación instalada, copias registradas del ejecutable, descargas, Java administrado por Luma, cuentas, ajustes, mundos, mods, capturas y accesos directos. Las carpetas externas compartidas con otros launchers requieren marcar una opción adicional, porque borrarlas también afecta a esos launchers. Se puede eliminar el propio instalador al cerrar. Cierra Luma y Minecraft antes de desinstalar.
+
+En el menú de clic derecho de una instancia hay dos acciones: **Eliminar de la biblioteca** conserva los archivos y **Eliminar completamente…** borra permanentemente la carpeta de juego confirmada. Esta última requiere una carpeta independiente; si está compartida, se indica el motivo. Las bibliotecas y los recursos que usa más de una instancia se mantienen hasta desinstalar Luma.
+
+Los directorios externos conocidos se recuerdan incluso después de retirar una instancia de la biblioteca. Las copias portátiles se registran cuando se abren con esta versión; también se detectan ejecutables de Luma enlazados desde el escritorio y el menú Inicio. El desinstalador no busca ejecutables desconocidos por todo el disco.
+
 ## Novedades 0.6.0
 
 - Páginas de instancia con contenido activable, explorador de archivos, mundos y registros en vivo. Los menús de clic derecho incluyen acciones de biblioteca, carpetas, duplicación, portada y accesos directos.
@@ -155,7 +165,7 @@ Proyecto independiente, sin afiliación con Mojang o Microsoft. Minecraft es una
 
 En **Contenido**, carga mods, resource packs, shaders o data packs ZIP. Para estos últimos elige el mundo de destino. El interruptor de resource packs modifica la selección en `options.txt`; mods y archivos ZIP desactivados se conservan con `.disabled`. Los packs en carpetas se guardan temporalmente fuera del directorio que examina el juego. Los shaders quedan disponibles o deshabilitados; su selección concreta se realiza con el mod de shaders dentro de Minecraft. No se cambia contenido mientras el juego está en ejecución.
 
-**Quitar contenido** mueve el archivo a `.luma/removed` dentro de la instancia. **Eliminar de la biblioteca** retira su registro y conserva los archivos del juego. Las carpetas de mundos permanecen intactas. **Duplicar** copia la carpeta de juego y mantiene bibliotecas y recursos compartidos.
+**Quitar contenido** mueve el archivo a `.luma/removed` dentro de la instancia. **Eliminar de la biblioteca** retira su registro y conserva los archivos del juego; **Eliminar completamente…** permite borrar la carpeta de juego de una instancia independiente tras confirmar. Las carpetas de mundos permanecen intactas. **Duplicar** copia la carpeta de juego y mantiene bibliotecas y recursos compartidos.
 
 Los registros del proceso están en `<instancia>/.luma/logs/game-latest.log`; los que genera Minecraft siguen en `logs/`. La página Registros admite búsqueda, filtros de nivel y archivos históricos `.log`/`.txt`. Se mantiene en pantalla una cola de hasta 512 KiB para no cargar registros enormes.
 

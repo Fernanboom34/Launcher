@@ -31,3 +31,11 @@ Las comprobaciones de instalación y arranque anteriores corresponden a la integ
 - Reparación real del mismo cliente: ejecución del instalador oficial, regeneración de dependencias y verificación posterior de 3.996 archivos. Se conservaron el identificador y la carpeta de la instancia.
 - Revisión de instalación limpia con LUMA_DATA_DIR independiente: biblioteca de cero instancias, sin perfiles precargados. Revisión del tema claro con panel lateral y controles legibles.
 - Release público v0.6.0 publicado con tres archivos. El instalador descargó Luma desde GitHub sin credenciales, terminó con código 0 y produjo únicamente Luma.exe; el SHA-256 coincidió con el manifiesto publicado. No se probó un reemplazo completo de una versión anterior mediante la interfaz del actualizador.
+
+
+## Integración 0.6.1
+
+- 31 pruebas del launcher y 7 del instalador. Se añadieron comprobaciones de eliminación completa de instancias, bloqueo de carpetas compartidas y generales del usuario, límites de rutas, eliminación de enlaces sin seguirlos y bloqueo de la desinstalación con aplicaciones abiertas.
+- La eliminación se ejecutó únicamente en carpetas de prueba aisladas. Se comprobó que archivos vecinos y destinos de enlaces permanecen intactos. No se ejecutó una desinstalación sobre la instalación ni los mundos reales del usuario.
+- El instalador incorpora listado de rutas, confirmación de borrado, selección explícita de carpetas externas compartidas y eliminación del propio instalador al cerrar. Se registra un acceso de desinstalación por usuario en Windows y se conserva el instalador en la carpeta de programas.
+- Revisión visual del instalador en modo desinstalación y del diálogo de borrado de instancia: las rutas son legibles, las acciones destructivas requieren confirmación y los botones quedan deshabilitados antes de aceptarla. Las vistas se cerraron sin ejecutar borrados sobre los datos del usuario.

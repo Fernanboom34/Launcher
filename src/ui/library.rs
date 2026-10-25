@@ -891,6 +891,15 @@ impl Launcher {
             .add_enabled(!self.busy, egui::Button::new("Eliminar de la biblioteca"))
             .clicked()
         {
+            self.workspace.remove_files = false;
+            self.workspace.remove = Some(profile.id.clone());
+            ui.close_menu();
+        }
+        if ui
+            .add_enabled(!self.busy, egui::Button::new("Eliminar completamente…"))
+            .clicked()
+        {
+            self.workspace.remove_files = true;
             self.workspace.remove = Some(profile.id.clone());
             ui.close_menu();
         }

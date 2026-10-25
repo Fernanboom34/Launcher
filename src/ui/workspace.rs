@@ -8,6 +8,9 @@ pub(super) struct Workspace {
     pub pending_world: Option<String>,
     pub import_open: bool,
     pub remove: Option<String>,
+    pub remove_files: bool,
+    pub deleting_instance: bool,
+    remove_ack: bool,
     pub minimized: bool,
     pub was_running: bool,
     pub decorations: Option<bool>,
@@ -780,30 +783,25 @@ if let Some(release)=self.update_release.clone(){ui.label(format!("Nueva versió
     }
     pub(super) fn workspace_windows(&mut self, ctx: &egui::Context) {
         if let Some(id) = self.workspace.remove.clone() {
-            egui::Window::new("Eliminar instancia de la biblioteca")
-                .collapsible(false)
-                .resizable(false)
-                .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
-                .show(ctx, |ui| {
-                    ui.label(
-                        "Sus mundos y archivos permanecerán en disco para que puedas recuperarlos.",
-                    );
-                    ui.horizontal(|ui| {
-                        if ui.button("Eliminar de la biblioteca").clicked() {
-                            match profiles::remove(&self.root, &id) {
-                                Ok(list) => {
-                                    self.installations = list;
-                                    self.page = Page::Profiles;
-                                }
-                                Err(e) => self.error = Some(e.to_string()),
-                            }
-                            self.workspace.remove = None;
-                        }
-                        if ui.button("Cancelar").clicked() {
-                            self.workspace.remove = None;
-                        }
-                    });
+            let deleting = self.workspace.remove_files;
+            let target = profiles::deletion_directory(&self.root, &id);
+            egui::Window::new(if deleting {"Eliminar instancia y archivos"}else{"Quitar instancia de la biblioteca"}).collapsible(false).resizable(false).default_width(500.).anchor(egui::Align2::CENTER_CENTER,Vec2::ZERO).show(ctx,|ui|{
+                if let Some(profile)=self.installations.iter().find(|p|p.id==id){ui.heading(&profile.name);}
+                if deleting{
+                    ui.label("Se borrarán permanentemente los mundos, mods, capturas, configuraciones y registros de esta carpeta:");
+                    match &target{Ok(path)=>{ui.add(egui::Label::new(RichText::new(crate::cleanup::display_path(path)).monospace().size(12.)).wrap());},Err(e)=>{ui.colored_label(Color32::from_rgb(245,110,120),e.to_string());ui.label("Puedes quitar el registro de la biblioteca. La eliminación completa requiere una carpeta independiente.");}}
+                    ui.checkbox(&mut self.workspace.remove_ack,"Entiendo que los archivos no se podrán recuperar desde Luma");
+                }else{ui.label("Los mundos y archivos permanecerán en disco.");}
+                ui.horizontal(|ui|{
+                    if ui.add_enabled(!self.busy&&(!deleting||(target.is_ok()&&self.workspace.remove_ack)),egui::Button::new(if deleting{"Eliminar completamente"}else{"Quitar de la biblioteca"})).clicked(){
+                        let root=self.root.clone();let worker_id=id.clone();let confirmed=target.as_ref().ok().cloned();
+                        self.work(move|tx|{let list=if deleting {profiles::remove_completely(&root,&worker_id,&confirmed.ok_or_else(||anyhow::anyhow!("Carpeta inválida"))?)?}else{profiles::remove(&root,&worker_id)?};tx.send(Event::Profiles(list))?;tx.send(Event::InstanceRemoved(worker_id))?;tx.send(Event::Status(if deleting{"Instancia y archivos eliminados"}else{"Instancia retirada de la biblioteca"}.into()))?;Ok(())});
+                        self.workspace.deleting_instance=true;
+                        self.workspace.remove=None;self.workspace.remove_ack=false;self.page=Page::Profiles;
+                    }
+                    if ui.button("Cancelar").clicked(){self.workspace.remove=None;self.workspace.remove_ack=false;}
                 });
+            });
         }
     }
     pub(super) fn editor_loader_versions(&mut self, choices: Vec<String>) {

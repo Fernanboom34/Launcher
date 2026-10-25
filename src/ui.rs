@@ -247,10 +247,14 @@ impl Launcher {
         }
         if matches!(
             std::env::var("LUMA_PREVIEW_PAGE").as_deref(),
-            Ok("instance" | "worlds" | "logs" | "instance-settings")
+            Ok("instance" | "worlds" | "logs" | "instance-settings" | "delete")
         ) {
             if let Some(p) = app.installations.first().cloned() {
                 app.open_instance(&p);
+                if std::env::var("LUMA_PREVIEW_PAGE").as_deref() == Ok("delete") {
+                    app.workspace.remove = Some(p.id.clone());
+                    app.workspace.remove_files = true;
+                }
                 app.workspace.tab = match std::env::var("LUMA_PREVIEW_PAGE").as_deref() {
                     Ok("worlds") => 2,
                     Ok("logs") => 3,
@@ -270,6 +274,12 @@ impl Launcher {
         }
         if let Ok(theme) = std::env::var("LUMA_PREVIEW_THEME") {
             app.settings.appearance.theme = theme.parse::<usize>().unwrap_or(0).min(3);
+        }
+        if std::env::var_os("LUMA_PREVIEW").is_none() && std::env::var_os("LUMA_DATA_DIR").is_none()
+        {
+            if let Ok(exe) = std::env::current_exe() {
+                let _ = crate::cleanup::register_executable(&exe);
+            }
         }
         app
     }
@@ -461,6 +471,14 @@ impl Launcher {
                     self.installed.insert(id);
                 }
                 Event::Profiles(list) => self.installations = list,
+                Event::InstanceRemoved(id) => {
+                    self.settings.instance_styles.remove(&id);
+                    if self.settings.active_installation == id {
+                        self.settings.active_installation.clear();
+                    }
+                    self.workspace.deleting_instance = false;
+                    self.save_settings();
+                }
                 Event::ProfileCreated(profile) => {
                     if let Some(style) = self.library.pending_style.take() {
                         self.settings
@@ -531,6 +549,7 @@ impl Launcher {
                     }
                 }
                 Event::Error(error) => {
+                    self.workspace.deleting_instance = false;
                     self.library.pending_style = None;
                     self.activity.push(error.clone());
                     self.error = Some(error);
@@ -791,6 +810,9 @@ impl eframe::App for Launcher {
             ctx.request_repaint();
         }
         self.events();
+        if self.workspace.deleting_instance && ctx.input(|i| i.viewport().close_requested()) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+        }
         if !self.busy
             && Instant::now() >= self.next_profile_scan
             && std::env::var_os("LUMA_PREVIEW").is_none()
