@@ -8,6 +8,8 @@ mod cleanup;
 mod content;
 mod distribution;
 mod engine;
+#[cfg(windows)]
+mod maintenance;
 mod model;
 mod net;
 mod oauth;
@@ -16,6 +18,13 @@ mod ui;
 
 fn main() -> eframe::Result {
     let args: Vec<String> = std::env::args().collect();
+    #[cfg(windows)]
+    if args
+        .get(1)
+        .is_some_and(|arg| arg == "--manage-uninstall-data")
+    {
+        return maintenance::run();
+    }
     if args.get(1).is_some_and(|arg| arg == "--content-browser") {
         if let Err(error) = browser::child_main() {
             eprintln!("{error:#}");
