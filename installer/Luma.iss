@@ -71,11 +71,9 @@ var
   Text: TNewStaticText;
   InstallButton, RemoveButton, CancelButton: TNewButton;
 begin
-  Form := CreateCustomForm;
+  Form := CreateCustomForm(ScaleX(540), ScaleY(200), False, False);
   try
     Form.Caption := 'Luma Launcher · {#SetupVersion}';
-    Form.ClientWidth := ScaleX(540);
-    Form.ClientHeight := ScaleY(200);
     Form.Position := poScreenCenter;
     Text := TNewStaticText.Create(Form);
     Text.Parent := Form;
