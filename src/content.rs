@@ -280,8 +280,11 @@ fn resource_packs(game: &Path) -> Vec<String> {
 mod tests {
     use super::*;
     fn fixture() -> PathBuf {
+        let mut nonce = [0u8; 16];
+        getrandom::getrandom(&mut nonce).unwrap();
+        let nonce = nonce.iter().map(|b| format!("{b:02x}")).collect::<String>();
         let p = std::env::temp_dir().join(format!(
-            "luma-content-{}-{}",
+            "luma-content-{}-{}-{nonce}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

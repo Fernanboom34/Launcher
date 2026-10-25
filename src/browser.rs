@@ -182,7 +182,8 @@ fn window(
         .with_inner_size(tao::dpi::LogicalSize::new(1150., 780.))
         .build(&events)?;
     let stage = profile.game_dir.join(".luma/web-downloads").join(format!(
-        "{}",
+        "{}-{}",
+        std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)?
             .as_nanos()

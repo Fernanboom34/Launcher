@@ -418,7 +418,8 @@ pub fn install(
         }
     }
     let stage = profile.game_dir.join(".luma/staging").join(format!(
-        "{}",
+        "{}-{}",
+        std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)?
             .as_nanos()
@@ -495,10 +496,13 @@ pub fn install(
 
 #[cfg(test)]
 pub(crate) fn test_profile() -> GameProfile {
+    let mut nonce = [0u8; 16];
+    getrandom::getrandom(&mut nonce).unwrap();
+    let nonce = nonce.iter().map(|b| format!("{b:02x}")).collect::<String>();
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("target/content-tests")
         .join(format!(
-            "{}-{}",
+            "{}-{}-{nonce}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

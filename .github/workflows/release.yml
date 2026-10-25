@@ -15,6 +15,16 @@ jobs:
         run: |
           rustup update stable --no-self-update
           rustup default stable
+          rustup component add rustfmt clippy
+      - name: Reutilizar dependencias de compilación
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: windows-msvc-static-${{ hashFiles('Cargo.lock') }}
+          restore-keys: windows-msvc-static-
       - name: Preparar certificado de firma opcional
         shell: pwsh
         env:

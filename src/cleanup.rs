@@ -484,10 +484,13 @@ pub fn wait_for_process(id: u32) -> Result<()> {
 mod tests {
     use super::*;
     fn fixture() -> PathBuf {
+        let mut nonce = [0u8; 16];
+        getrandom::getrandom(&mut nonce).unwrap();
+        let nonce = nonce.iter().map(|b| format!("{b:02x}")).collect::<String>();
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("target/cleanup-tests")
             .join(format!(
-                "{}-{}",
+                "{}-{}-{nonce}",
                 std::process::id(),
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
