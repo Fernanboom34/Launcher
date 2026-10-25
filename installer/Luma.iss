@@ -120,10 +120,12 @@ begin
   Action := ChooseAction;
   if Action = mrYes then begin
     Arguments := '/ALLUSERS /LUMA_ENGINE=1';
-    if not Exec(ExpandConstant('{srcexe}'), Arguments, '', SW_SHOWNORMAL, ewWaitUntilTerminated, ExitCode) then begin
-      MsgBox('No se pudo iniciar la instalacion.', mbError, MB_OK);
+    if not ShellExec('runas', ExpandConstant('{srcexe}'), Arguments, '', SW_SHOWNORMAL, ewWaitUntilTerminated, ExitCode) then begin
+      MsgBox('No se pudo iniciar la instalacion. Windows: ' + IntToStr(ExitCode) + ' - ' + SysErrorMessage(ExitCode), mbError, MB_OK);
       Exit;
     end;
+    if ExitCode <> 0 then
+      MsgBox('La instalacion termino sin completarse (codigo ' + IntToStr(ExitCode) + '). Consulta el registro de Setup en la carpeta temporal.', mbError, MB_OK);
     if ExitCode = 0 then
       RegDeleteKeyIncludingSubkeys(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\Luma');
   end else if Action = mrNo then begin
