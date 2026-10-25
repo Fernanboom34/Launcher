@@ -37,6 +37,7 @@ jobs:
           rustup default stable
           rustup component add rustfmt clippy
       - name: Reutilizar dependencias de compilación
+        id: rust-cache
         uses: actions/cache@v4
         with:
           path: |
@@ -73,6 +74,15 @@ jobs:
           cargo test --locked
           if ($LASTEXITCODE) { throw 'Las pruebas fallaron' }
           ./build.ps1
+      - name: Guardar compilacion antes de probar instalador
+        if: steps.rust-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: windows-msvc-static-${{ hashFiles('Cargo.lock') }}
       - name: Compilar y probar nuevo instalador
         if: inputs.include_installer == true
         shell: pwsh
@@ -128,6 +138,7 @@ jobs:
           & $compiler installer/Luma.iss
           if ($LASTEXITCODE) { throw 'El prototipo Inno no compila' }
       - name: Comprobar rechazo del release estable anterior
+        if: hashFiles('scripts/test-native-installer.ps1') == ''
         shell: pwsh
         run: |
           $probeFolder = Join-Path $env:RUNNER_TEMP 'Luma-installer-probe'
