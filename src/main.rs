@@ -16,6 +16,13 @@ mod ui;
 
 fn main() -> eframe::Result {
     let args: Vec<String> = std::env::args().collect();
+    if args.get(1).is_some_and(|arg| arg == "--content-browser") {
+        if let Err(error) = browser::child_main() {
+            eprintln!("{error:#}");
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
     if args.get(1).is_some_and(|arg| {
         [
             "--create-profile",
