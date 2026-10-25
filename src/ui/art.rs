@@ -3,7 +3,7 @@ use super::*;
 #[derive(Clone, Copy)]
 pub(super) enum Glyph {
     Play,
-    Grid,
+    Skin,
     Image,
     Settings,
     Activity,
@@ -39,15 +39,23 @@ pub(super) fn glyph(p: &egui::Painter, rect: Rect, icon: Glyph, color: Color32) 
             line((-0.8, 0.7), (-0.05, -0.1));
             line((-0.05, -0.1), (0.85, 0.7));
         }
-        Glyph::Grid => {
-            for (x, y) in [(-0.95, -0.95), (0.15, -0.95), (-0.95, 0.15), (0.15, 0.15)] {
-                p.rect_stroke(
-                    Rect::from_min_max(pt(x, y), pt(x + 0.75, y + 0.75)),
-                    2.0,
-                    s,
-                    egui::StrokeKind::Inside,
-                );
-            }
+        Glyph::Skin => {
+            p.add(egui::Shape::closed_line(
+                vec![
+                    pt(-0.35, -0.85),
+                    pt(-0.95, -0.45),
+                    pt(-0.65, 0.05),
+                    pt(-0.45, -0.1),
+                    pt(-0.45, 0.9),
+                    pt(0.45, 0.9),
+                    pt(0.45, -0.1),
+                    pt(0.65, 0.05),
+                    pt(0.95, -0.45),
+                    pt(0.35, -0.85),
+                    pt(0., -0.6),
+                ],
+                s,
+            ));
         }
         Glyph::Settings => {
             p.circle_stroke(c, r * 0.65, s);

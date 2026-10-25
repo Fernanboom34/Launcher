@@ -5,16 +5,18 @@ use std::collections::HashMap;
 pub(super) struct State {
     pub library: Option<Library>,
     pub textures: HashMap<String, egui::TextureHandle>,
-    preview: Option<String>,
+    pub(super) preview: Option<String>,
     yaw: f32,
     edit: bool,
     name: String,
     slim: bool,
+    replacement: Option<Vec<u8>>,
     remove: bool,
     instance: String,
     pub capes: Vec<skins::Cape>,
     pub cape: String,
     pub account_loaded: Option<String>,
+    defaults_attempted: bool,
 }
 impl Default for State {
     fn default() -> Self {
@@ -26,15 +28,40 @@ impl Default for State {
             edit: false,
             name: String::new(),
             slim: false,
+            replacement: None,
             remove: false,
             instance: String::new(),
             capes: Vec::new(),
             cape: String::new(),
             account_loaded: None,
+            defaults_attempted: false,
         }
     }
 }
 impl Launcher {
+    fn download_default_skins(&mut self) {
+        self.skins.defaults_attempted = true;
+        let root = self.root.clone();
+        self.work(move |tx| {
+            let mut l = Library::load(&root)?;
+            for (name, key, slim) in skins::DEFAULTS {
+                if l.skins.iter().any(|s| {
+                    s.builtin
+                        && s.name == *name
+                        && skins::texture_path(&root, &s.id).is_ok_and(|p| p.is_file())
+                }) {
+                    continue;
+                }
+                tx.send(Event::Status(format!("Descargando skin {name}…")))?;
+                let bytes = skins::download_texture(&format!(
+                    "https://textures.minecraft.net/texture/{key}"
+                ))?;
+                l.import(&root, &bytes, name, *slim, true)?;
+            }
+            tx.send(Event::SkinsChanged)?;
+            Ok(())
+        });
+    }
     fn import_skin(&mut self, path: PathBuf) {
         let result = (|| -> anyhow::Result<String> {
             anyhow::ensure!(
@@ -116,6 +143,13 @@ impl Launcher {
             .as_ref()
             .map(|l| l.skins.clone())
             .unwrap_or_default();
+        if !self.skins.defaults_attempted
+            && !self.busy
+            && entries.iter().filter(|s| s.builtin).count() < skins::DEFAULTS.len()
+            && std::env::var_os("LUMA_PREVIEW").is_none()
+        {
+            self.download_default_skins();
+        }
         let equipped = self
             .skins
             .library
@@ -142,7 +176,7 @@ impl Launcher {
                     if let Some(texture)=self.skin_texture(ui.ctx(),skin){super::skin_preview::draw(ui,rect,texture,skin.slim,self.skins.yaw);}
                     ui.label(RichText::new(&skin.name).strong());
                     ui.label(RichText::new("Arrastra el modelo para girarlo").small().color(palette().muted));
-                    if ui.add_enabled(!self.busy,egui::Button::new("Editar skin")).clicked(){self.skins.edit=true;self.skins.name=skin.name.clone();self.skins.slim=skin.slim;}
+                    if ui.add_enabled(!self.busy,egui::Button::new("Editar skin")).clicked(){self.skins.edit=true;self.skins.name=skin.name.clone();self.skins.slim=skin.slim;self.skins.replacement=None;}
                     if account.local {
                         ui.add_space(12.);ui.label("Aplicar en una instancia");
                         if self.skins.instance.is_empty(){self.skins.instance=self.settings.active_installation.clone();}
@@ -166,24 +200,29 @@ impl Launcher {
                 });
             });ui.separator();
             egui::ScrollArea::vertical().id_salt("skin_gallery").show(ui,|ui|{
-                ui.set_min_width(ui.available_width());
+                ui.with_layout(Layout::top_down(Align::Min),|ui|{
+                ui.set_width(ui.available_width());
                 ui.horizontal_wrapped(|ui|{
                     if ui.add_enabled(!self.busy,primary("+ Añadir skin PNG")).clicked(){if let Some(path)=rfd::FileDialog::new().add_filter("Skin PNG",&["png"]).pick_file(){self.import_skin(path);}}
-                    if ui.add_enabled(!self.busy,egui::Button::new("Descargar skins predeterminadas")).clicked(){let root=self.root.clone();self.work(move|tx|{let mut l=Library::load(&root)?;for (name,key,slim) in skins::DEFAULTS{tx.send(Event::Status(format!("Descargando skin {name}…")))?;let bytes=skins::download_texture(&format!("https://textures.minecraft.net/texture/{key}"))?;l.import(&root,&bytes,name,*slim,true)?;}tx.send(Event::SkinsChanged)?;Ok(())});}
+                    if ui.add_enabled(!self.busy,egui::Button::new("Actualizar predeterminadas")).clicked(){self.download_default_skins();}
                     if !account.local && ui.add_enabled(!self.busy && session.is_some(),egui::Button::new("Cargar skin y capas de mi cuenta")).clicked(){let root=self.root.clone();let session=session.clone().unwrap();self.work(move|tx|{let appearance=skins::account_appearance(&session)?;if let Some(s)=appearance.skins.iter().find(|s|s.state=="ACTIVE"){let bytes=skins::download_texture(&s.url)?;let mut l=Library::load(&root)?;let id=l.import(&root,&bytes,&session.profile.name,s.variant.eq_ignore_ascii_case("SLIM"),false)?;l.selected.insert(session.profile.id.clone(),id);l.save(&root)?;}tx.send(Event::SkinAccount(session.profile.id,appearance))?;Ok(())});}
                 });
                 ui.label(RichText::new("Arrastra aquí tu PNG · 64×64 o 64×32 · máximo 1 MB").small().color(palette().muted));ui.add_space(16.);
                 for builtin in [false,true]{
                     ui.label(RichText::new(if builtin{"Skins predeterminadas"}else{"Skins guardadas"}).size(20.).strong());
-                    ui.horizontal_wrapped(|ui|{for skin in entries.iter().filter(|s|s.builtin==builtin){
+                    let columns=(((ui.clip_rect().right()-ui.cursor().left())/174.).floor() as usize).max(1);
+                    egui::Grid::new(("skin_grid",builtin)).num_columns(columns).spacing(Vec2::new(12.,12.)).show(ui,|ui|{for (index,skin) in entries.iter().filter(|s|s.builtin==builtin).enumerate(){
                         let chosen=current.as_ref().is_some_and(|s|s.id==skin.id);
                         egui::Frame::new().fill(if chosen{Color32::from_rgb(35, 65, 51)}else{palette().panel}).stroke(Stroke::new(1.0_f32,if chosen{MINT}else{palette().border})).corner_radius(16).inner_margin(12.).show(ui,|ui|{
+                            ui.vertical(|ui|{
                             ui.set_width(138.);let (rect,response)=ui.allocate_exact_size(Vec2::new(138.,190.),Sense::click());
                             if let Some(texture)=self.skin_texture(ui.ctx(),skin){super::skin_preview::draw(ui,rect,texture,skin.slim,0.25);}
                             if response.clicked(){self.skins.preview=Some(skin.id.clone());}
                             if ui.selectable_label(chosen,&skin.name).clicked(){self.skins.preview=Some(skin.id.clone());}
-                            if equipped.as_ref()==Some(&skin.id){ui.label(RichText::new("✓ Seleccionada").small().color(MINT));}
+                            ui.label(RichText::new(if equipped.as_ref()==Some(&skin.id){"✓ Seleccionada"}else{" "}).small().color(MINT));
+                            });
                         });
+                        if (index+1)%columns==0 {ui.end_row();}
                     }});ui.add_space(18.);
                 }
                 if !account.local && self.skins.account_loaded.as_ref()==Some(&account.id){
@@ -191,6 +230,7 @@ impl Launcher {
                     egui::ComboBox::from_id_salt("account_cape").selected_text(self.skins.capes.iter().find(|c|c.id==self.skins.cape).map(|c|c.alias.as_str()).unwrap_or("Sin capa")).show_ui(ui,|ui|{ui.selectable_value(&mut self.skins.cape,String::new(),"Sin capa");for cape in &self.skins.capes{ui.selectable_value(&mut self.skins.cape,cape.id.clone(),&cape.alias).on_hover_text(&cape.url);}});
                     if ui.add_enabled(!self.busy && session.is_some(),egui::Button::new("Aplicar capa")).clicked(){let session=session.unwrap();let cape=self.skins.cape.clone();self.work(move|tx|{skins::set_cape(&session,(!cape.is_empty()).then_some(cape.as_str()))?;tx.send(Event::Status("Capa actualizada".into()))?;Ok(())});}
                 }
+                });
             });
         });
         if let Some(skin) = current {
@@ -209,16 +249,42 @@ impl Launcher {
                         );
                         ui.selectable_value(&mut self.skins.slim, true, "Delgado · brazos de 3 px");
                     });
-                    if ui.button("Guardar cambios").clicked() {
-                        if let Some(l) = self.skins.library.as_mut() {
-                            if let Some(item) = l.skins.iter_mut().find(|s| s.id == skin.id) {
-                                item.name = self.skins.name.trim().chars().take(60).collect();
-                                item.slim = self.skins.slim;
+                    if ui.button("Cambiar archivo PNG").clicked() {
+                        if let Some(path) = rfd::FileDialog::new()
+                            .add_filter("Skin PNG", &["png"])
+                            .pick_file()
+                        {
+                            match skins::read_png(&path) {
+                                Ok(bytes) => self.skins.replacement = Some(bytes),
+                                Err(e) => self.error = Some(e.to_string()),
                             }
-                            if let Err(e) = l.save(&self.root) {
-                                self.error = Some(e.to_string());
-                            } else {
-                                close = true;
+                        }
+                    }
+                    if self.skins.replacement.is_some() {
+                        ui.label("Se guardará el nuevo PNG como una skin guardada.");
+                    }
+                    if ui
+                        .button(if skin.builtin {
+                            "Guardar copia personalizada"
+                        } else {
+                            "Guardar cambios"
+                        })
+                        .clicked()
+                    {
+                        if let Some(l) = self.skins.library.as_mut() {
+                            match l.edit(
+                                &self.root,
+                                &skin.id,
+                                &self.skins.name,
+                                self.skins.slim,
+                                self.skins.replacement.as_deref(),
+                            ) {
+                                Ok(id) => {
+                                    self.skins.preview = Some(id);
+                                    self.skins.textures.clear();
+                                    close = true;
+                                }
+                                Err(e) => self.error = Some(e.to_string()),
                             }
                         }
                     }

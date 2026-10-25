@@ -168,7 +168,7 @@ impl Launcher {
             .show(ctx, |ui| {
                 for (page, icon, label) in [
                     (Page::Home, Glyph::Play, "Inicio"),
-                    (Page::Skins, Glyph::Grid, "Selector de skins"),
+                    (Page::Skins, Glyph::Skin, "Selector de skins"),
                     (Page::Screenshots, Glyph::Image, "Capturas de pantalla"),
                 ] {
                     if art::icon_button(ui, icon, label, self.page == page, true, 48.).clicked() {

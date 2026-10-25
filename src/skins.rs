@@ -49,7 +49,14 @@ impl Library {
         let mut png = Cursor::new(Vec::new());
         image.write_to(&mut png, image::ImageFormat::Png)?;
         let bytes = png.into_inner();
-        let id = format!("{:x}", Sha256::digest(&bytes));
+        let mut digest = Sha256::new();
+        digest.update(&bytes);
+        digest.update(if builtin {
+            b"default".as_slice()
+        } else {
+            b"saved".as_slice()
+        });
+        let id = format!("{:x}", digest.finalize());
         if !self.skins.iter().any(|s| s.id == id) {
             std::fs::create_dir_all(root.join("skins/textures"))?;
             std::fs::write(texture_path(root, &id)?, bytes)?;
@@ -73,6 +80,41 @@ impl Library {
             std::fs::remove_file(file)?;
         }
         Ok(())
+    }
+    pub fn edit(
+        &mut self,
+        root: &Path,
+        id: &str,
+        name: &str,
+        slim: bool,
+        replacement: Option<&[u8]>,
+    ) -> Result<String> {
+        anyhow::ensure!(!name.trim().is_empty(), "Escribe un nombre para la skin");
+        let original = self
+            .skins
+            .iter()
+            .find(|s| s.id == id)
+            .context("Skin no encontrada")?
+            .clone();
+        let id = if original.builtin || replacement.is_some() {
+            let bytes = if let Some(bytes) = replacement {
+                bytes.to_vec()
+            } else {
+                std::fs::read(texture_path(root, id)?)?
+            };
+            self.import(root, &bytes, name, slim, false)?
+        } else {
+            id.to_owned()
+        };
+        let skin = self
+            .skins
+            .iter_mut()
+            .find(|s| s.id == id)
+            .context("Skin no encontrada")?;
+        skin.name = name.trim().chars().take(60).collect();
+        skin.slim = slim;
+        self.save(root)?;
+        Ok(id)
     }
 }
 pub fn texture_path(root: &Path, id: &str) -> Result<PathBuf> {
@@ -122,6 +164,15 @@ pub fn decode(bytes: &[u8]) -> Result<image::RgbaImage> {
         image::imageops::overlay(&mut full, &face, dx, dy);
     }
     Ok(full)
+}
+pub fn read_png(path: &Path) -> Result<Vec<u8>> {
+    anyhow::ensure!(
+        std::fs::metadata(path)?.len() <= 1024 * 1024,
+        "La skin supera 1 MB"
+    );
+    let bytes = std::fs::read(path)?;
+    decode(&bytes)?;
+    Ok(bytes)
 }
 pub fn download_texture(url: &str) -> Result<Vec<u8>> {
     let mut url = url::Url::parse(url)?;
@@ -338,6 +389,10 @@ pub fn configure_local(root: &Path, skin: &Skin, name: &str, game: &Path) -> Res
 pub fn disable_local(name: &str, game: &Path) -> Result<()> {
     model::Profile::offline(name)?;
     let folder = game.join("CustomSkinLoader");
+    anyhow::ensure!(
+        folder.canonicalize()?.starts_with(game.canonicalize()?),
+        "La carpeta de skins está fuera de la instancia"
+    );
     let marker = folder.join(format!(".luma-{name}.json"));
     anyhow::ensure!(
         marker.is_file(),

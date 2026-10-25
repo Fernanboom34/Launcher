@@ -460,6 +460,7 @@ impl Launcher {
                             .map(|c| c.id.clone())
                             .unwrap_or_default();
                         self.skins.account_loaded = Some(id);
+                        self.skins.preview = None;
                         self.skins.library = None;
                     }
                 }
