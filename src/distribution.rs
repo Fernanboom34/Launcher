@@ -72,12 +72,16 @@ pub fn latest() -> Result<Release> {
 pub fn newer(version: &str, current: &str) -> bool {
     fn numbers(s: &str) -> Option<Vec<u32>> {
         s.trim_start_matches('v')
+            .split('-')
+            .next()?
             .split('.')
             .map(|n| n.parse().ok())
             .collect()
     }
     match (numbers(version), numbers(current)) {
-        (Some(a), Some(b)) => a > b,
+        // The remote candidate is a stable release (validated by latest()).
+        // A stable build also supersedes a beta of the same numeric version.
+        (Some(a), Some(b)) => a > b || (a == b && current.contains('-') && !version.contains('-')),
         _ => false,
     }
 }
@@ -333,6 +337,8 @@ mod tests {
     }
     #[test]
     fn releases_are_scoped_and_versions_numeric() {
+        assert!(newer("0.7.1", "0.7.1-beta.1"));
+        assert!(!newer("0.7.0", "0.7.1-beta.1"));
         assert!(
             trusted("https://github.com/Fernanboom34/Launcher/releases/download/v1/Luma.exe")
                 .is_ok()
