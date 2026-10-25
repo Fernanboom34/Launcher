@@ -20,6 +20,7 @@ Actualizado: 25/10/2026 (México). Solicitud actual del usuario: limpiar el proy
 - Verificar el navegador con compilación MSVC estática de release (solo se probó GNU local hasta ahora), tanto Modrinth como CurseForge. No publicar un release desde la rama de pruebas.
 - Verificar Quick Play de extremo a extremo con una COPIA de un mundo, sin modificar los mundos reales. El arreglo de clics ya pasa la prueba de entrada de egui; todavía no se arrancó un mundo para verificarlo.
 - Defender sigue sin resolver: obtener análisis de muestra original y revisar/reemplazar diseño de instalador antes de afirmar que está limpio. Leer `REVISION-DEFENDER.md` en rama `security/defender-review` (`git show security/defender-review:REVISION-DEFENDER.md`). No se envió muestra aún.
+- DECISIÓN POSTERIOR DEL USUARIO: NO enviar a Microsoft; prefiere solucionarlo en el proyecto. No enviar muestra ni informe. Preparar sustitución del Setup propio por un instalador estándar y probar con Defender activo; no prometer que un cambio de empaquetado elimina por sí solo la detección.
 - Revisar ramas e integrar solo después de validación. Usuario pidió ramas por cambio, no cambios directos a main. No se creó tag ni release nuevo.
 
 ## Completado en esta sesión
