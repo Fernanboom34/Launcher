@@ -70,6 +70,7 @@ jobs:
           name: Luma-verificacion-${{ github.run_id }}
           path: |
             artifacts/Luma-*.exe
+            !artifacts/Luma-Setup.exe
             artifacts/luma-release.json
             artifacts/SHA256SUMS.txt
           retention-days: 7
