@@ -1,6 +1,13 @@
 # Estado para retomar Luma
 
-## En curso: selector de versiones, navegación y skins (25/10)
+## Cierre: 0.8.0-beta.1-windows publicada (25/10; prevalece sobre el historial)
+
+- **Publicado y verificado públicamente:** https://github.com/Fernanboom34/Launcher/releases/tag/v0.8.0-beta.1-windows . Cuatro archivos descargados de nuevo sin autenticación, hashes iguales a CI, prerelease=true/draft=false, latest estable siguev0.7.0. Tagc23cb9b; código ejecutableca94d6c. Rama actualrelease/0.8.0-beta.1-windows. Usar entregables **artifacts/beta8-final**, no artifacts/beta8 (compilación anterior a corrección legacy).
+- Finalizados selector MC estable/todas, Fabric estables/builds en creación y edición, navegación sin Biblioteca/Versiones/Actividad, selector skins con modelo estático girable, importar/editar/exportar/eliminar, predeterminadas de internet, API Microsoft de skin/capas, y aplicación local mediante CustomSkinLoader compatible de internet con respaldo/restauración. No se empaquetan JAR ni PNG.
+- CI FINAL40227023522 SUCCESS (54regulares,6ignoradas,Clippy/formato/buildMSVC/Inno y ciclo nativo). Prueba real de descargar/configurar CSL+Steve en NeoForge26.3 desechable PASA. Vista previa del EXE FINAL y ExitCode0 comprobados. **Pendiente manual:** apariencia dentro de Minecraft y operaciones de skin/capa en cuenta Microsoft real; no se ejecutaron cambios remotos en cuentas del usuario. Vanilla requiere elegir un cargador compatible desde Configuración; no se convierte automáticamente.
+- App finalSHA256 **775d43585b5ac1b31d1e72eccb15799a0580e7e555716da1938d9766e8c5427d**,13.752.832bytes. Setup finalSHA256 **a873b9b632075a92c074b2a10fd325eed1fec743beafd0716893e732bf696215**,2.099.392bytes. Main1057f3a intacta; trabajo Linux separado. No apagar PC ni enviar a Microsoft: autorizaciones anteriores siguen igual.
+
+Lo siguiente detalla el trabajo y compilaciones previas; la distribución final es la indicada arriba.
 
 - Usuario confirma beta.3 funciona. Solicita quitar búsqueda del desplegable que lo cierra, mostrar releases por defecto con botón Mostrar todas las versiones, filtro Estables/Todas las builds para Fabric. Quitar páginas redundantes Biblioteca, Versiones/Descargas y Actividad. Registros por instancia se conservan.
 - Solicita selector de skins inspirado en Modrinth, modelo sin animaciones. Primero eligió solo previsualizar en local, luego cambió explícitamente: **sí instalar mod para usar skins locales**. Se implementa botón que descarga CustomSkinLoader compatible en la instancia elegida. Vanilla muestra indicación para cambiar cargador, sin conversión automática. Microsoft aplica mediante API autenticada; ninguna cuenta real modificada en pruebas.
