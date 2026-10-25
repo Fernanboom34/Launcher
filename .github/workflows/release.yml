@@ -12,10 +12,15 @@ on:
         description: 'Publicar release (solo sin source_ref)'
         type: boolean
         default: false
+      installer_only:
+        description: 'Solo compilar y comprobar el prototipo Inno (sin publicar)'
+        type: boolean
+        default: false
 permissions:
   contents: write
 jobs:
   windows:
+    if: inputs.installer_only != true
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -90,3 +95,29 @@ jobs:
             gh release upload $tag "artifacts/Luma-$version.exe" artifacts/Luma-Setup.exe artifacts/luma-release.json artifacts/SHA256SUMS.txt --repo '${{ github.repository }}' --clobber
           }
           if ($LASTEXITCODE) { throw 'No se pudo publicar el release' }
+  installer-draft:
+    if: inputs.installer_only == true
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
+      - name: Compilar prototipo estandar
+        shell: pwsh
+        run: |
+          $compiler = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if (!(Test-Path -LiteralPath $compiler)) { throw 'Falta Inno Setup en el runner' }
+          & $compiler installer/Luma.iss
+          if ($LASTEXITCODE) { throw 'El prototipo Inno no compila' }
+      - name: Comprobar rechazo del release estable anterior
+        shell: pwsh
+        run: |
+          $probeFolder = Join-Path $env:RUNNER_TEMP 'Luma-installer-probe'
+          $probeLog = Join-Path $env:RUNNER_TEMP 'Luma-installer-probe.log'
+          $arguments = @('/VERYSILENT','/NORESTART','/SP-','/SUPPRESSMSGBOXES',"/DIR=$probeFolder","/LOG=$probeLog")
+          $process = Start-Process -FilePath artifacts/installer-draft/Luma-Setup-DRAFT.exe -ArgumentList $arguments -WindowStyle Hidden -Wait -PassThru
+          Get-Content -LiteralPath $probeLog
+          if ($process.ExitCode -eq 0 -or (Test-Path -LiteralPath (Join-Path $probeFolder 'Luma.exe'))) { throw 'El prototipo no debia instalar el release 0.7.0' }
+          if (!(Select-String -LiteralPath $probeLog -SimpleMatch 'Todavia no hay un release compatible')) { throw 'La prueba no alcanzo la comprobacion de version minima' }
