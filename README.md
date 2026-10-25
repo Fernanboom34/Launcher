@@ -1,10 +1,10 @@
 # Luma
 
-## Beta 0.7.1-beta.2-windows
+## Beta 0.7.1-beta.3-windows
 
 Esta rama integra los arreglos de interacción, el navegador en proceso separado y las descargas `blob:` de páginas HTTPS. El panel nativo de descargas permanece disponible para decisiones del navegador.
 
-Incluye un Setup nuevo basado en Inno Setup. Instala esta beta en Program Files y ofrece instalar/actualizar o desinstalar. El borrado opcional de datos se confirma en una ventana de Luma que corre con el usuario original; después el desinstalador nativo retira la aplicación con los permisos de Windows. Para una instalación antigua primero instala esta actualización, conservando tus datos. Desde Aplicaciones de Windows el desinstalador nativo conserva los datos; abre el Setup para elegir su eliminación completa. El archivo Setup descargado permanece en Descargas.
+Incluye un Setup basado en Inno Setup con elevación estándar de Windows. Instala esta beta en Program Files y ofrece instalar/actualizar o desinstalar, también para copias portables registradas y versiones anteriores a Inno, sin exigir instalar primero. Descarga y verifica un helper temporal que confirma el borrado opcional de datos con el usuario original y retira las copias registradas del launcher. Después se retira la instalación de Program Files si existe. Desde Aplicaciones de Windows el desinstalador nativo conserva los datos; abre el Setup para elegir su eliminación completa. El Setup descargado permanece en Descargas. Instalar y desinstalar desde el Setup requieren conexión para obtener los archivos verificados.
 
 Esta distribución es solo una pre-release de Windows; no modifica main ni se ofrece como actualización automática estable. El Setup 0.7.0 tuvo una detección de Defender en un equipo y no se reprodujo en la laptop del usuario; no es un diagnóstico de GitHub Actions. El cambio de instalador todavía requiere comparación con Defender activo. No se recomienda permitir amenazas ni restaurar cuarentena. Esta beta descarga su payload de su propio tag para que la prueba sea reproducible.
 
