@@ -11,15 +11,13 @@ Actualizado: 25/10/2026 (México). Solicitud actual del usuario: limpiar el proy
 - NUEVA INSTRUCCIÓN DEL USUARIO: una rama por cambio, no trabajar ni integrar en main automáticamente. Ramas desde main, sin mezclar arreglos entre sí.
 
 ## En curso
-1. Crear este registro, inspeccionar tamaños y rutas antes de eliminar compilados/pruebas obsoletos.
-2. Revisar código de interacción de contenido y mundos.
-3. Revisar navegador Wry/TAO, capturar errores del sistema y aislar el navegador del proceso principal si procede.
-4. Revisar instalador y Defender: inventario de detección de solo lectura, hashes y documentación oficial; no asumir falso positivo sin revisión.
+1. Compilando la integración 0.7.1-beta.1 en [Actions 40168293370](https://github.com/Fernanboom34/Launcher/actions/runs/40168293370), sin publicación automática. Solo después de pasar se puede publicar como pre-release con EXE de launcher (sin Setup).
+2. Reemplazo del instalador en `fix/standard-installer`: prototipo compilado, todavía sin integración completa de datos/migración/updater. No listo para distribuir.
 
 ## Pendientes
-- Verificar el navegador con compilación MSVC estática de release (solo se probó GNU local hasta ahora), tanto Modrinth como CurseForge. No publicar un release desde la rama de pruebas.
+- Verificar el flujo manual completo de Cargar archivos y descargas en el navegador hijo; ambas webs YA pasaron smoke en MSVC estático real y LTSC (ver resultado abajo).
 - Verificar Quick Play de extremo a extremo con una COPIA de un mundo, sin modificar los mundos reales. El arreglo de clics ya pasa la prueba de entrada de egui; todavía no se arrancó un mundo para verificarlo.
-- Defender sigue sin resolver: obtener análisis de muestra original y revisar/reemplazar diseño de instalador antes de afirmar que está limpio. Leer `REVISION-DEFENDER.md` en rama `security/defender-review` (`git show security/defender-review:REVISION-DEFENDER.md`). No se envió muestra aún.
+- Defender sigue sin resolver: revisar/reemplazar diseño de instalador y validar con protección activa antes de afirmar que está limpio. Leer `REVISION-DEFENDER.md` en rama `security/defender-review` (`git show security/defender-review:REVISION-DEFENDER.md`). No enviar muestra, según decisión del usuario.
 - DECISIÓN POSTERIOR DEL USUARIO: NO enviar a Microsoft; prefiere solucionarlo en el proyecto. No enviar muestra ni informe. Preparar sustitución del Setup propio por un instalador estándar y probar con Defender activo; no prometer que un cambio de empaquetado elimina por sí solo la detección.
 - Revisar ramas e integrar solo después de validación. Usuario pidió ramas por cambio, no cambios directos a main. No se creó tag ni release nuevo.
 
