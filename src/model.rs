@@ -259,7 +259,7 @@ pub enum Event {
     ),
     UpdateAvailable(crate::distribution::Release),
     UpdateReady(PathBuf),
-    EditorLoaderVersions(Vec<String>),
+    EditorLoaderVersions(Vec<String>, std::collections::HashSet<String>),
     GameStarted,
     GameExited(Option<i32>),
     Done,

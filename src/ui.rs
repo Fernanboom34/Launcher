@@ -616,7 +616,7 @@ impl Launcher {
                     self.auth_url = None;
                     self.status = "La operación no se completó".into();
                 }
-                Event::EditorLoaderVersions(v) => self.editor_loader_versions(v),
+                Event::EditorLoaderVersions(v, stable) => self.editor_loader_versions(v, stable),
                 Event::UpdateAvailable(release) => self.update_release = Some(release),
                 Event::UpdateReady(path) => self.update_staged = Some(path),
                 Event::Done => {

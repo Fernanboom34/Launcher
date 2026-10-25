@@ -29,6 +29,9 @@ pub(super) struct Workspace {
     file_path: PathBuf,
     editing: Option<GameProfile>,
     loader_choices: Vec<String>,
+    stable_loaders: HashSet<String>,
+    all_mc: bool,
+    fabric_builds: bool,
     loader_key: Option<(Loader, String)>,
     new_account: String,
     import_kind: usize,
@@ -555,10 +558,11 @@ impl Launcher {
             egui::ScrollArea::vertical().id_salt("instance_settings").show(ui,|ui|{ui.with_layout(Layout::top_down(Align::Min),|ui|{ui.set_width(ui.available_width());match self.workspace.settings_tab{
                 0=>{ui.heading("General");ui.label("Nombre de la instancia");ui.text_edit_singleline(&mut edit.name);ui.label(RichText::new(p.game_dir.display().to_string()).small().color(palette().muted));if ui.button("Abrir carpeta").clicked(){self.instance_folder(p,false);}}
                 1=>{ui.heading("Editar instalación");ui.horizontal_wrapped(|ui|{for loader in Loader::ALL{ui.selectable_value(&mut edit.loader,loader,loader.label());}});ui.label("Versión de Minecraft");
-                    egui::ComboBox::from_id_salt("edit_mc").selected_text(&edit.minecraft).show_ui(ui,|ui|{for v in &self.manifest.versions{ui.selectable_value(&mut edit.minecraft,v.id.clone(),&v.id);}});
+                    egui::ComboBox::from_id_salt("edit_mc").close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).selected_text(&edit.minecraft).show_ui(ui,|ui|{egui::ScrollArea::vertical().max_height(220.).show(ui,|ui|{for v in &self.manifest.versions{if (self.workspace.all_mc || v.kind=="release") && ui.selectable_value(&mut edit.minecraft,v.id.clone(),&v.id).clicked(){ui.close_menu();}}});ui.separator();if ui.button(if self.workspace.all_mc{"Mostrar solo versiones estables"}else{"Mostrar todas las versiones"}).clicked(){self.workspace.all_mc=!self.workspace.all_mc;}});
                     ui.label("Versión del modloader");ui.add_enabled(edit.loader!=Loader::Vanilla,egui::TextEdit::singleline(&mut edit.loader_version).hint_text("Elige una versión compatible"));
-                    if ui.add_enabled(!self.busy&&edit.loader!=Loader::Vanilla,egui::Button::new("Consultar versiones compatibles")).clicked(){let loader=edit.loader;let mc=edit.minecraft.clone();self.workspace.loader_key=Some((loader,mc.clone()));let tx=self.tx.clone();std::thread::spawn(move||{match profiles::loader_versions(loader,&mc){Ok(v)=>{let _=tx.send(Event::EditorLoaderVersions(v));}Err(e)=>{let _=tx.send(Event::Error(e.to_string()));}}});}
-                    if self.workspace.loader_key.as_ref()==Some(&(edit.loader,edit.minecraft.clone())){egui::ComboBox::from_id_salt("edit_loader").selected_text(&edit.loader_version).show_ui(ui,|ui|{for v in &self.workspace.loader_choices{ui.selectable_value(&mut edit.loader_version,v.clone(),v);}});}
+                    if ui.add_enabled(!self.busy&&edit.loader!=Loader::Vanilla,egui::Button::new("Consultar versiones compatibles")).clicked(){let loader=edit.loader;let mc=edit.minecraft.clone();self.workspace.loader_key=Some((loader,mc.clone()));let tx=self.tx.clone();std::thread::spawn(move||{match profiles::loader_versions_with_stability(loader,&mc){Ok((v,stable))=>{let _=tx.send(Event::EditorLoaderVersions(v,stable));}Err(e)=>{let _=tx.send(Event::Error(e.to_string()));}}});}
+                    if edit.loader==Loader::Fabric{ui.horizontal(|ui|{ui.selectable_value(&mut self.workspace.fabric_builds,false,"Estables");ui.selectable_value(&mut self.workspace.fabric_builds,true,"Todas las builds");});}
+                    if self.workspace.loader_key.as_ref()==Some(&(edit.loader,edit.minecraft.clone())){egui::ComboBox::from_id_salt("edit_loader").selected_text(&edit.loader_version).show_ui(ui,|ui|{for v in &self.workspace.loader_choices{if edit.loader==Loader::Fabric && !self.workspace.fabric_builds && !self.workspace.stable_loaders.contains(v){continue;}ui.selectable_value(&mut edit.loader_version,v.clone(),v);}});}
                     ui.add_space(12.);if ui.add_enabled(!self.busy,primary("Guardar e instalar")).clicked(){let request=ProfileRequest{name:edit.name.clone(),minecraft:edit.minecraft.clone(),loader:edit.loader,loader_version:edit.loader_version.clone()};let root=self.root.clone();let settings=self.settings.clone();let profile=edit.clone();self.work(move|tx|profiles::update_installation(&root,profile,&request,&settings,&tx));}
                     ui.separator();ui.heading("Reparar instancia");ui.label("Verifica los archivos descargados y reinstala las dependencias del juego y del loader. Conserva los mundos y el contenido.");if ui.add_enabled(!self.busy,egui::Button::new("Reparar")).clicked(){let request=ProfileRequest{name:p.name.clone(),minecraft:p.minecraft.clone(),loader:p.loader,loader_version:p.loader_version.clone()};let root=self.root.clone();let settings=self.settings.clone();let profile=p.clone();self.work(move|tx|profiles::update_installation(&root,profile,&request,&settings,&tx));}
                 }
@@ -814,8 +818,9 @@ if let Some(release)=self.update_release.clone(){ui.label(format!("Nueva versió
             });
         }
     }
-    pub(super) fn editor_loader_versions(&mut self, choices: Vec<String>) {
+    pub(super) fn editor_loader_versions(&mut self, choices: Vec<String>, stable: HashSet<String>) {
         self.workspace.loader_choices = choices;
+        self.workspace.stable_loaders = stable;
     }
 }
 // Register the row's background before its children. Adding click sense to a
