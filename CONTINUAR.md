@@ -1,5 +1,17 @@
 # Estado para retomar Luma
 
+## En curso: selector de versiones, navegación y skins (25/10)
+
+- Usuario confirma beta.3 funciona. Solicita quitar búsqueda del desplegable que lo cierra, mostrar releases por defecto con botón Mostrar todas las versiones, filtro Estables/Todas las builds para Fabric. Quitar páginas redundantes Biblioteca, Versiones/Descargas y Actividad. Registros por instancia se conservan.
+- Solicita selector de skins inspirado en Modrinth, modelo sin animaciones. Primero eligió solo previsualizar en local, luego cambió explícitamente: **sí instalar mod para usar skins locales**. Se implementa botón que descarga CustomSkinLoader compatible en la instancia elegida. Vanilla muestra indicación para cambiar cargador, sin conversión automática. Microsoft aplica mediante API autenticada; ninguna cuenta real modificada en pruebas.
+- Ramas apiladas desde beta.3: `fix/version-selection` 6b30756, `ui/simplify-navigation` 29a7a79, actual `feat/skin-library` (skins todavía en cambios de trabajo). Main y Linux intactos. No publicar estable.
+- Nuevos src/skins.rs (biblioteca, PNG64x64/64x32, normalización legacy, defaults oficiales descargados, API de skin/capas Minecraft, instalación CSL por catálogo/hash/dependencias, reglas locales y backup/restauración), src/ui/skin_ui.rs, skin_preview.rs (cubos texturizados estáticos, giro manual, ambas capas/modelos).
+- Cargo añade feature multipart a reqwest (mime/mime_guess/unicase en lock). UI incluye importar/arrastrar/exportar/renombrar/eliminar, clásico/slim, biblioteca, predeterminadas, skin/capas de cuenta, aplicar local con mod, desactivar. No se empaquetan JAR ni skins PNG.
+- Tests: 44 main+10 Setup PASAN, 6 ignoradas. Clippy PASA. Test ignorado live_local_skin_install PASA: descarga Steve oficial y CustomSkinLoader Universal15.1 compatible con NeoForge26.3 en instancia desechable, con config/PNG correctos. NO se arrancó Minecraft para comprobar apariencia dentro del juego; pendiente. Pruebas de config preservan regla y skin preexistentes y restauran PNG al desactivar. No se aplicó ninguna skin a cuentas reales.
+- En curso vista previa del app GNU en datos aislados artifacts/preview-skins mediante LUMA_PREVIEW_PAGE=skins, PNG artifacts/skins-preview.png. Helper artifacts/prepare-skin-preview.py obtiene las 9 texturas oficiales. Validar imagen y arreglar layout; después commit, CI MSVC/beta nueva con Setup nuevo. Sigue pendiente verificar cuentas Microsoft reales solo si usuario las aplica desde UI.
+- Fuentes primarias: FabricMC/fabric-meta README para stable; modrinth/code packages/app-lib/src/state/minecraft_skins/mojang_api.rs para rutas API; xfl03/MCCustomSkinLoader rama15-develop README/LegacyLoader/Config para rutas locales y modelo. Config conserva loadlist previo y backup, LumaLocal primero, fallback Mojang si config nueva. Artefactos temporales de referencias están en artifacts.
+- No apagar PC: permiso viejo ya se usó. No repetir.
+
 ## Cierre 25/10: beta.3 publicada (prevalece sobre cierres anteriores)
 
 - Usuario: Setup no inicia instalar (mensaje generico), desinstalar exige migrar, descarga web aparece pero termina FILE_FAILED (motivo 1). Logs locales de Setup #005/#006 y browser-latest.log confirman los tres sintomas. No se ha instalado ni desinstalado nada real.

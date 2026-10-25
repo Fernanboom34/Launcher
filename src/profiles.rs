@@ -293,7 +293,10 @@ fn discover_sources(
 pub fn loader_versions(loader: Loader, minecraft: &str) -> Result<Vec<String>> {
     Ok(loader_versions_with_stability(loader, minecraft)?.0)
 }
-pub fn loader_versions_with_stability(loader: Loader, minecraft: &str) -> Result<(Vec<String>, HashSet<String>)> {
+pub fn loader_versions_with_stability(
+    loader: Loader,
+    minecraft: &str,
+) -> Result<(Vec<String>, HashSet<String>)> {
     model::safe_component(minecraft)?;
     let mut stable = HashSet::new();
     let client = net::client()?;
@@ -316,7 +319,9 @@ pub fn loader_versions_with_stability(loader: Loader, minecraft: &str) -> Result
             .iter()
             .filter_map(|item| {
                 let version = item["loader"]["version"].as_str()?.to_owned();
-                if item["loader"]["stable"].as_bool() == Some(true) { stable.insert(version.clone()); }
+                if item["loader"]["stable"].as_bool() == Some(true) {
+                    stable.insert(version.clone());
+                }
                 Some(version)
             })
             .collect()

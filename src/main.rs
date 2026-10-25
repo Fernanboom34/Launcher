@@ -14,6 +14,7 @@ mod model;
 mod net;
 mod oauth;
 mod profiles;
+mod skins;
 mod ui;
 
 fn main() -> eframe::Result {

@@ -74,6 +74,7 @@ impl Launcher {
                             Page::Settings => "Ajustes",
                             Page::Instance => "Instancia",
                             Page::Screenshots => "Capturas de pantalla",
+                            Page::Skins => "Skins",
                         })
                         .size(14.)
                         .strong(),
@@ -167,6 +168,7 @@ impl Launcher {
             .show(ctx, |ui| {
                 for (page, icon, label) in [
                     (Page::Home, Glyph::Play, "Inicio"),
+                    (Page::Skins, Glyph::Grid, "Selector de skins"),
                     (Page::Screenshots, Glyph::Image, "Capturas de pantalla"),
                 ] {
                     if art::icon_button(ui, icon, label, self.page == page, true, 48.).clicked() {
@@ -1078,8 +1080,19 @@ impl Launcher {
         self.library.all_mc_versions = false;
         self.library.fabric_builds = false;
         self.library.stable_loaders.clear();
-        if !self.manifest.versions.iter().any(|v| v.id == self.new_minecraft && v.kind == "release") {
-            self.new_minecraft = self.manifest.versions.iter().find(|v| v.kind == "release").map(|v| v.id.clone()).unwrap_or_default();
+        if !self
+            .manifest
+            .versions
+            .iter()
+            .any(|v| v.id == self.new_minecraft && v.kind == "release")
+        {
+            self.new_minecraft = self
+                .manifest
+                .versions
+                .iter()
+                .find(|v| v.kind == "release")
+                .map(|v| v.id.clone())
+                .unwrap_or_default();
         }
         self.library.show_palette = false;
         self.library.cover_target = None;
@@ -1111,7 +1124,8 @@ impl Launcher {
             }
             self.status = format!("Buscando {} para Minecraft {}…", loader.label(), minecraft);
             self.work(move |tx| {
-                let (versions, stable) = profiles::loader_versions_with_stability(loader, &minecraft)?;
+                let (versions, stable) =
+                    profiles::loader_versions_with_stability(loader, &minecraft)?;
                 tx.send(Event::LoaderVersions(loader, minecraft, versions, stable))?;
                 Ok(())
             });
@@ -1340,13 +1354,36 @@ impl Launcher {
                                 .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
                                 .selected_text(&self.new_minecraft)
                                 .show_ui(ui, |ui| {
-                                    egui::ScrollArea::vertical().max_height(240.).show(ui, |ui| {
-                                        for version in &self.manifest.versions {
-                                            if (self.library.all_mc_versions || version.kind == "release") && ui.selectable_value(&mut self.new_minecraft, version.id.clone(), &version.id).clicked() { ui.close_menu(); }
-                                        }
-                                    });
+                                    egui::ScrollArea::vertical()
+                                        .max_height(240.)
+                                        .show(ui, |ui| {
+                                            for version in &self.manifest.versions {
+                                                if (self.library.all_mc_versions
+                                                    || version.kind == "release")
+                                                    && ui
+                                                        .selectable_value(
+                                                            &mut self.new_minecraft,
+                                                            version.id.clone(),
+                                                            &version.id,
+                                                        )
+                                                        .clicked()
+                                                {
+                                                    ui.close_menu();
+                                                }
+                                            }
+                                        });
                                     ui.separator();
-                                    if ui.button(if self.library.all_mc_versions { "Mostrar solo versiones estables" } else { "Mostrar todas las versiones" }).clicked() { self.library.all_mc_versions = !self.library.all_mc_versions; }
+                                    if ui
+                                        .button(if self.library.all_mc_versions {
+                                            "Mostrar solo versiones estables"
+                                        } else {
+                                            "Mostrar todas las versiones"
+                                        })
+                                        .clicked()
+                                    {
+                                        self.library.all_mc_versions =
+                                            !self.library.all_mc_versions;
+                                    }
                                 });
                         });
                         if before != (self.new_loader, self.new_minecraft.clone()) {
@@ -1364,11 +1401,27 @@ impl Launcher {
                             if self.new_loader == Loader::Fabric {
                                 let before = self.library.fabric_builds;
                                 ui.horizontal(|ui| {
-                                    ui.selectable_value(&mut self.library.fabric_builds, false, "Estables");
-                                    ui.selectable_value(&mut self.library.fabric_builds, true, "Todas las builds");
+                                    ui.selectable_value(
+                                        &mut self.library.fabric_builds,
+                                        false,
+                                        "Estables",
+                                    );
+                                    ui.selectable_value(
+                                        &mut self.library.fabric_builds,
+                                        true,
+                                        "Todas las builds",
+                                    );
                                 });
                                 if before != self.library.fabric_builds {
-                                    self.new_loader_version = self.loader_versions.iter().find(|v| self.library.fabric_builds || self.library.stable_loaders.contains(*v)).cloned().unwrap_or_default();
+                                    self.new_loader_version = self
+                                        .loader_versions
+                                        .iter()
+                                        .find(|v| {
+                                            self.library.fabric_builds
+                                                || self.library.stable_loaders.contains(*v)
+                                        })
+                                        .cloned()
+                                        .unwrap_or_default();
                                 }
                             }
                             ui.horizontal(|ui| {
@@ -1380,7 +1433,11 @@ impl Launcher {
                                     )
                                     .clicked()
                                 {
-                                    if let Some(version) = self.loader_versions.iter().find(|v| self.new_loader != Loader::Fabric || self.library.fabric_builds || self.library.stable_loaders.contains(*v)) {
+                                    if let Some(version) = self.loader_versions.iter().find(|v| {
+                                        self.new_loader != Loader::Fabric
+                                            || self.library.fabric_builds
+                                            || self.library.stable_loaders.contains(*v)
+                                    }) {
                                         self.new_loader_version = version.clone();
                                     }
                                 }
@@ -1404,7 +1461,15 @@ impl Launcher {
                                         })
                                         .show_ui(ui, |ui| {
                                             for version in &self.loader_versions {
-                                                if self.new_loader == Loader::Fabric && !self.library.fabric_builds && !self.library.stable_loaders.contains(version) { continue; }
+                                                if self.new_loader == Loader::Fabric
+                                                    && !self.library.fabric_builds
+                                                    && !self
+                                                        .library
+                                                        .stable_loaders
+                                                        .contains(version)
+                                                {
+                                                    continue;
+                                                }
                                                 ui.selectable_value(
                                                     &mut self.new_loader_version,
                                                     version.clone(),

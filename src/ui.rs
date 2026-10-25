@@ -22,6 +22,8 @@ use std::{
 mod art;
 mod catalog_ui;
 mod library;
+mod skin_preview;
+mod skin_ui;
 mod theme;
 mod workspace;
 use theme::palette;
@@ -34,6 +36,7 @@ enum Page {
     Settings,
     Instance,
     Screenshots,
+    Skins,
 }
 
 pub struct Launcher {
@@ -75,6 +78,7 @@ pub struct Launcher {
     game_started: Option<Instant>,
     update_release: Option<crate::distribution::Release>,
     update_staged: Option<PathBuf>,
+    skins: skin_ui::State,
 }
 
 impl Launcher {
@@ -164,6 +168,7 @@ impl Launcher {
             page: match std::env::var("LUMA_PREVIEW_PAGE").as_deref() {
                 Ok("settings") => Page::Settings,
                 Ok("screenshots") => Page::Screenshots,
+                Ok("skins") => Page::Skins,
                 _ => Page::Home,
             },
             busy: false,
@@ -196,6 +201,7 @@ impl Launcher {
             game_started: None,
             update_release: None,
             update_staged: None,
+            skins: Default::default(),
         };
         if std::env::var("LUMA_PREVIEW_PAGE").as_deref() == Ok("selected") {
             if let Some(profile) = app.installations.first() {
@@ -439,6 +445,24 @@ impl Launcher {
     fn events(&mut self) {
         while let Ok(event) = self.rx.try_recv() {
             match event {
+                Event::SkinsChanged => {
+                    self.skins.library = None;
+                    self.skins.textures.clear();
+                }
+                Event::SkinAccount(id, appearance) => {
+                    if self.settings.profile.as_ref().is_some_and(|p| p.id == id) {
+                        self.skins.capes = appearance.capes;
+                        self.skins.cape = self
+                            .skins
+                            .capes
+                            .iter()
+                            .find(|c| c.state == "ACTIVE")
+                            .map(|c| c.id.clone())
+                            .unwrap_or_default();
+                        self.skins.account_loaded = Some(id);
+                        self.skins.library = None;
+                    }
+                }
                 Event::Status(status) => {
                     self.activity.push(status.clone());
                     self.status = status;
@@ -528,7 +552,15 @@ impl Launcher {
                 }
                 Event::LoaderVersions(loader, minecraft, versions, stable) => {
                     if self.new_loader == loader && self.new_minecraft == minecraft {
-                        self.new_loader_version = versions.iter().find(|v| loader != Loader::Fabric || self.library.fabric_builds || stable.contains(*v)).cloned().unwrap_or_default();
+                        self.new_loader_version = versions
+                            .iter()
+                            .find(|v| {
+                                loader != Loader::Fabric
+                                    || self.library.fabric_builds
+                                    || stable.contains(*v)
+                            })
+                            .cloned()
+                            .unwrap_or_default();
                         self.library.stable_loaders = stable;
                         self.loader_versions = versions;
                         self.loader_query = Some((loader, minecraft));
@@ -655,8 +687,6 @@ impl Launcher {
             self.error = Some(format!("No se pudo abrir {}: {error}", path.display()));
         }
     }
-
-
 }
 
 impl eframe::App for Launcher {
@@ -796,6 +826,7 @@ impl eframe::App for Launcher {
                     Page::Settings => self.launcher_settings(ui),
                     Page::Instance => self.instance_page(ui),
                     Page::Screenshots => self.screenshots_page(ui),
+                    Page::Skins => self.skins_page(ui),
                 }
             });
         if let Some(url) = self.auth_url.clone() {
@@ -889,11 +920,3 @@ fn primary(label: &str) -> egui::Button<'_> {
     .fill(MINT)
     .corner_radius(9.0)
 }
-
-fn title(ui: &mut egui::Ui, heading: &str, description: &str) {
-    ui.label(RichText::new(heading).size(29.0).strong());
-    ui.label(RichText::new(description).color(palette().muted));
-    ui.add_space(18.0);
-}
-
-

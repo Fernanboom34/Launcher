@@ -807,7 +807,7 @@ if let Some(release)=self.update_release.clone(){ui.label(format!("Nueva versió
                         let root=self.root.clone();let worker_id=id.clone();let confirmed=target.as_ref().ok().cloned();
                         self.work(move|tx|{let list=if deleting {profiles::remove_completely(&root,&worker_id,&confirmed.ok_or_else(||anyhow::anyhow!("Carpeta inválida"))?)?}else{profiles::remove(&root,&worker_id)?};tx.send(Event::Profiles(list))?;tx.send(Event::InstanceRemoved(worker_id))?;tx.send(Event::Status(if deleting{"Instancia y archivos eliminados"}else{"Instancia retirada de la biblioteca"}.into()))?;Ok(())});
                         self.workspace.deleting_instance=true;
-                        self.workspace.remove=None;self.workspace.remove_ack=false;self.page=Page::Profiles;
+                        self.workspace.remove=None;self.workspace.remove_ack=false;self.page=Page::Home;
                     }
                     if ui.button("Cancelar").clicked(){self.workspace.remove=None;self.workspace.remove_ack=false;}
                 });
