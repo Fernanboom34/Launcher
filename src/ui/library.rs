@@ -123,7 +123,7 @@ impl Launcher {
                         egui::Frame::new()
                             .stroke(Stroke::new(1.0_f32, palette().border))
                             .corner_radius(10.)
-                            .inner_margin(egui::Margin::symmetric(12, 6))
+                            .inner_margin(egui::Margin::symmetric(12, 2))
                             .show(ui, |ui| {
                                 ui.horizontal(|ui| {
                                     let (dot, _) =
@@ -262,7 +262,7 @@ impl Launcher {
                     }
                     if ui.small_button("Opciones de cuenta").clicked() {self.page=Page::Settings;self.workspace.global_tab=2;}
                 });
-                if ui.add_enabled(!self.busy,egui::Checkbox::new(&mut self.settings.offline,"Modo sin conexión")).changed() {self.save_settings();}
+
                 ui.add_space(14.);ui.separator();ui.add_space(12.);
                 section(ui,"INSTANCIA SELECCIONADA");
                 if let Some(profile)=self.active_installation().cloned() {
@@ -1094,7 +1094,6 @@ impl Launcher {
         if !self.library.create_open
             || self.new_loader == Loader::Vanilla
             || self.busy
-            || self.settings.offline
             || std::env::var_os("LUMA_PREVIEW").is_some()
         {
             return;
@@ -1431,22 +1430,6 @@ impl Launcher {
                                 .size(12.)
                                 .color(palette().muted),
                         );
-                        if self.settings.offline {
-                            ui.horizontal_wrapped(|ui| {
-                                ui.label(
-                                    RichText::new("La instalación necesita conexión.")
-                                        .size(12.)
-                                        .color(palette().muted),
-                                );
-                                if ui.small_button("Permitir descargas").clicked() {
-                                    self.settings.offline = false;
-                                    self.save_settings();
-                                    if self.new_loader != Loader::Vanilla {
-                                        self.library.loader_due = Some(Instant::now());
-                                    }
-                                }
-                            });
-                        }
                         if let Some(error) = &self.error {
                             ui.label(
                                 RichText::new(error)
@@ -1466,10 +1449,7 @@ impl Launcher {
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if ui
                         .add_enabled(
-                            !self.busy
-                                && !self.settings.offline
-                                && !self.new_minecraft.is_empty()
-                                && compatible,
+                            !self.busy && !self.new_minecraft.is_empty() && compatible,
                             primary("+ Crear instancia").min_size(Vec2::new(158., 37.)),
                         )
                         .clicked()
@@ -1544,8 +1524,8 @@ impl Launcher {
             .pick_file()
         {
             let root = self.root.clone();
-            let mut settings = self.settings.clone();
-            settings.offline = false;
+            let settings = self.settings.clone();
+
             let name = path
                 .file_stem()
                 .map(|v| v.to_string_lossy().to_string())

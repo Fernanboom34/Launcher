@@ -71,7 +71,15 @@ impl Installer {
             let result = (|| -> anyhow::Result<()> {
                 let release = distribution::latest()?;
                 let folder = distribution::install_dir();
-                let target = folder.join("Luma.exe");
+                let stage = std::env::temp_dir().join(format!(
+                    "Luma-install-{}-{}",
+                    std::process::id(),
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)?
+                        .as_nanos()
+                ));
+                std::fs::create_dir_all(&stage)?;
+                let target = stage.join("Luma.exe");
                 let (progress, updates) = mpsc::channel();
                 let notify = tx.clone();
                 let reporter = std::thread::spawn(move || {
@@ -82,9 +90,16 @@ impl Installer {
                 let result = distribution::download(&release, &target, &progress);
                 drop(progress);
                 let _ = reporter.join();
-                result?;
+                if let Err(error) = result {
+                    let _ = cleanup::delete_verified_directory(&stage, &stage.canonicalize()?);
+                    return Err(error);
+                }
                 let setup = folder.join("Luma-Setup.exe");
-                std::fs::copy(std::env::current_exe()?, &setup)?;
+                let installed =
+                    distribution::install_application(&release, &target, &std::env::current_exe()?);
+                let _ = cleanup::delete_verified_directory(&stage, &stage.canonicalize()?);
+                installed?;
+                let target = folder.join("Luma.exe");
                 cleanup::register_installation(&target, &setup, &release.version)?;
                 if desktop {
                     distribution::shortcut(&target, "Luma", "")?;

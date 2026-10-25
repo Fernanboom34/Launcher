@@ -538,10 +538,6 @@ fn create_inner(
     tx: &Sender<Event>,
 ) -> Result<GameProfile> {
     anyhow::ensure!(
-        !settings.offline,
-        "Desactiva Jugar sin conexión para crear e instalar un perfil nuevo."
-    );
-    anyhow::ensure!(
         !request.name.trim().is_empty() && request.name.chars().count() <= 80,
         "Escribe un nombre para el perfil de hasta 80 caracteres."
     );
@@ -778,7 +774,7 @@ pub fn cli(args: &[String]) -> Result<()> {
                         Some(l.label().to_lowercase()) == args.get(4).map(|s| s.to_lowercase())
                     })
                     .context("Loader: vanilla, fabric, neoforge o forge")?;
-                settings.offline = false;
+
                 engine::catalog(&root, &tx)?;
                 let loader_version = if loader == Loader::Vanilla {
                     String::new()
@@ -805,7 +801,7 @@ pub fn cli(args: &[String]) -> Result<()> {
             }
             "--install-loader-jar" => {
                 let path = Path::new(args.get(2).context("Falta la ruta al instalador .jar")?);
-                settings.offline = false;
+
                 engine::catalog(&root, &tx)?;
                 let profile = install_local_jar(
                     &root,
@@ -832,7 +828,6 @@ pub fn cli(args: &[String]) -> Result<()> {
                 settings.memory_mb = settings.runtime.memory_mb;
                 settings.java = settings.runtime.java.clone();
                 if command == "--repair-profile" {
-                    settings.offline = false;
                     let request = ProfileRequest {
                         name: profile.name.clone(),
                         minecraft: profile.minecraft.clone(),
@@ -885,10 +880,6 @@ pub fn update_installation(
     settings: &Settings,
     tx: &Sender<Event>,
 ) -> Result<()> {
-    anyhow::ensure!(
-        !settings.offline,
-        "Conéctate para editar o reparar la instalación"
-    );
     // Installer outputs and dependencies live in Luma, never overwrite an external launcher's metadata.
     let mut profile = profile;
     profile.storage_dir = root.into();
@@ -942,6 +933,10 @@ pub fn remove(root: &Path, id: &str) -> Result<Vec<GameProfile>> {
 }
 
 pub fn deletion_directory(root: &Path, id: &str) -> Result<PathBuf> {
+    anyhow::ensure!(
+        !crate::browser::is_open_for(id),
+        "Cierra el navegador de esta instancia antes de eliminar sus archivos"
+    );
     let list = load(root)?;
     let profile = list
         .iter()

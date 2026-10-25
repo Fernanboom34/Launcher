@@ -1,6 +1,27 @@
 # Luma
 
-Launcher nativo de **Minecraft Java Edition para Windows x64**, escrito en Rust con egui. Tema oscuro, acentos menta y un paisaje original dibujado con vectores, sin navegador integrado.
+Launcher nativo de **Minecraft Java Edition para Windows x64**, escrito en Rust con egui. Biblioteca de instancias, temas y acentos menta, con catálogo de contenido y navegador web integrado.
+
+## Novedades 0.7.0
+
+- Corregida la franja negra bajo la cabecera y los mensajes CLIXML de PowerShell: los errores se presentan como texto normal en español.
+- El instalador usa `C:/Program Files/Luma Launcher`. Windows solicita permisos para copiar o retirar los archivos de esa carpeta; las cuentas, accesos directos y datos del jugador se gestionan con su usuario habitual. El actualizador también solicita permisos cuando la aplicación está en Program Files.
+- Se retiró el interruptor **Modo sin conexión**. Una cuenta local permite jugar sin Microsoft; una cuenta Microsoft guardada sin sesión activa utiliza su identidad guardada. Una sesión Microsoft válida habilita sus funciones autenticadas. Las descargas se intentan cuando faltan archivos y las instalaciones completas siguen funcionando con los archivos locales.
+- **Instancia → Contenido → Cargar archivos** ofrece archivos locales, catálogo de Modrinth o la web de Modrinth/CurseForge dentro de Luma.
+- El catálogo de Modrinth filtra por Minecraft y loader, muestra versiones compatibles, descarga desde su CDN y comprueba las sumas de verificación. Instala las dependencias obligatorias y conserva los archivos sustituidos en `.luma/removed`.
+- El navegador web mantiene un destino fijo para la instancia que lo abrió. Mods van a `mods`, resource packs a `resourcepacks`, shaders a `shaderpacks` y datapacks al mundo elegido, en `saves/<mundo>/datapacks`. Las descargas se preparan aparte y solo pasan a su destino cuando se completan y son un JAR/ZIP válido. Cierra el navegador antes de iniciar el juego.
+
+Modrinth permite consultas y descargas públicas sin una clave. La API de terceros de CurseForge exige solicitar una clave; esta versión utiliza su página web sin reutilizar claves ajenas. El navegador usa Microsoft Edge WebView2: si falta, se descarga el instalador de Microsoft y se valida su firma antes de ejecutarlo. El runtime compartido de Microsoft puede ser utilizado por otras aplicaciones; el desinstalador de Luma elimina su caché propia, no ese runtime del sistema. Fuentes: [Modrinth](https://docs.modrinth.com/api/) y [CurseForge](https://docs.curseforge.com/rest-api/).
+
+## Aviso de Windows SmartScreen
+
+Los releases actuales no tienen una firma pública de editor configurada. Windows puede mostrar **Windows protegió su PC** o **editor desconocido** al descargar el instalador. Este aviso no demuestra por sí solo que un archivo sea malicioso, y tampoco debe interpretarse esta documentación como una garantía de seguridad.
+
+Descarga únicamente desde los [releases oficiales de Luma](https://github.com/Fernanboom34/Launcher/releases). Para comprobar los archivos usa `Get-FileHash -Algorithm SHA256` y compara el resultado con `SHA256SUMS.txt` publicado en ese release. Si verificaste el origen y decides ejecutarlo, Windows puede ofrecer **Más información → Ejecutar de todas formas**. En equipos administrados esta opción puede estar bloqueada. El aviso de permisos de administrador para Program Files es un paso distinto. Puede identificar a Windows PowerShell, que ejecuta la copia restringida de archivos; eso no significa que Luma esté firmado por Microsoft.
+
+Firmar todas las versiones con una identidad pública validada ayuda a acumular reputación. Un certificado autofirmado no evita el aviso en equipos ajenos; los certificados EV tampoco garantizan confianza inmediata. Consulta [SmartScreen para desarrolladores](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation). Para publicar sin esos avisos, otra vía es una aplicación MSIX certificada y distribuida por Microsoft Store; eso requiere preparar y enviar ese paquete por separado.
+
+La compilación admite `build.ps1 -SigningCertificateThumbprint HUELLA_DEL_CERTIFICADO`: firma ambos ejecutables con SHA-256 y sello de tiempo antes de generar el manifiesto. El certificado y su clave privada deben estar disponibles en `Cert:/CurrentUser/My`. En GitHub Actions se pueden configurar los secretos `LUMA_SIGNING_PFX_BASE64` y `LUMA_SIGNING_PFX_PASSWORD` si el proveedor permite ese tipo de certificado exportable; para un token/HSM o servicio de firma se necesita su integración correspondiente. La clave privada nunca debe subirse al repositorio. No se ha usado el certificado local de desarrollo para simular una firma pública.
 
 ## Novedades 0.6.1
 
@@ -23,7 +44,7 @@ Los directorios externos conocidos se recuerdan incluso después de retirar una 
 
 ## Instalador y actualizaciones
 
-Descarga `Luma-Setup.exe` del [último release público](https://github.com/Fernanboom34/Launcher/releases/latest). Instala el ejecutable en `%LOCALAPPDATA%/Programs/Luma` y permite crear un acceso directo al escritorio. El mismo instalador consulta siempre el release estable más reciente. Para una instalación sin interfaz: `Luma-Setup.exe --install-to "C:/Mi carpeta/Luma"`.
+Descarga `Luma-Setup.exe` del [último release público](https://github.com/Fernanboom34/Launcher/releases/latest). Instala el ejecutable en `C:/Program Files/Luma Launcher` y permite crear un acceso directo al escritorio. El mismo instalador consulta siempre el release estable más reciente. Para una instalación sin interfaz: `Luma-Setup.exe --install-to "C:/Mi carpeta/Luma"`.
 
 Luma consulta actualizaciones al abrir con conexión. Si encuentra una versión mayor, muestra **Nueva versión disponible · Actualizar** en la parte superior. Al pulsarlo descarga y verifica la nueva aplicación, cierra Luma, reemplaza el ejecutable y vuelve a abrirlo. Conserva una copia `.previous` para recuperar el ejecutable si falla el reemplazo. Los datos del jugador viven en otra carpeta.
 
@@ -38,7 +59,7 @@ Ejecuta `artifacts/Luma.exe` si ya está compilado. No requiere instalar Rust pa
 1. En **Inicio** o **Biblioteca**, pulsa **+ Nueva instancia**. Elige un nombre, el cargador y una versión de Minecraft. **Versiones** permite buscar un lanzamiento del catálogo y abrir la misma ventana de creación.
 2. Pulsa **Crear instancia**. Se descargan el cliente, las bibliotecas, los recursos y el Java que requiere esa versión.
 3. En el panel derecho, abre **Cambiar jugador**, escribe tu nombre y pulsa **Usar nombre**. No necesitas una cuenta Microsoft; al abrir por primera vez ya hay un jugador local llamado `Jugador`.
-4. Pulsa **Jugar** en la tarjeta de la instancia. Activa **Modo sin conexión** en el panel derecho si ya tienes todos los archivos instalados y quieres que el launcher no descargue nada. Con la opción desactivada, un jugador local también puede jugar sin cuenta y descargar automáticamente lo que falte.
+4. Pulsa **Jugar** en la tarjeta de la instancia. Si ya están instalados todos los archivos puedes jugar sin internet. Una cuenta local también puede descargar lo que falte cuando hay conexión; no hace falta un interruptor adicional.
 
 El UUID local se genera a partir del nombre siguiendo el formato offline de Java. Mantén el mismo nombre para conservar tu identidad e inventario en los mundos y servidores que la usen.
 
@@ -105,7 +126,7 @@ También puedes ejecutar:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1
 ```
 
-El script produce `artifacts/Luma.exe`, la copia con versión, `artifacts/Luma-Setup.exe` y `artifacts/luma-release.json`. Si existe `.tools/mingw64/bin/gcc.exe` y está instalado el toolchain Rust `stable-x86_64-pc-windows-gnu`, utiliza ese compilador portátil. En esta carpeta se preparó esa alternativa para no necesitar Visual Studio. `.tools` no forma parte del código fuente ni del ejecutable distribuido.
+El script produce `artifacts/Luma.exe`, la copia con versión, `artifacts/Luma-Setup.exe` y `artifacts/luma-release.json`. Los releases públicos se compilan con MSVC y el runtime de C y el cargador WebView2 enlazados estáticamente. En desarrollo con GNU se copia también `WebView2Loader.dll`: conserva ese archivo junto al ejecutable local. Si existe `.tools/mingw64/bin/gcc.exe` y está instalado el toolchain Rust `stable-x86_64-pc-windows-gnu`, utiliza ese compilador portátil. En esta carpeta se preparó esa alternativa para no necesitar Visual Studio. `.tools` no forma parte del código fuente ni del ejecutable distribuido.
 
 ```powershell
 cargo test --locked

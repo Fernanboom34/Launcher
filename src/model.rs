@@ -38,7 +38,6 @@ pub struct Settings {
     pub memory_mb: u32,
     pub client_id: String,
     pub java: String,
-    pub offline: bool,
     pub profile: Option<Profile>,
     pub local_name: String,
     pub active_installation: String,
@@ -58,7 +57,6 @@ impl Default for Settings {
             memory_mb: 4096,
             client_id: String::new(),
             java: String::new(),
-            offline: false,
             profile: None,
             local_name: "Jugador".into(),
             active_installation: String::new(),
@@ -91,12 +89,14 @@ impl Settings {
             Some(profile) if !profile.local => profile.clone(),
             _ => Profile::offline(&self.local_name)?,
         };
-        if profile.local || self.offline {
-            return Ok((profile, "0".into()));
+        if !profile.local {
+            if let Some(session) = session
+                .filter(|s| s.profile.id == profile.id && std::time::Instant::now() < s.expires)
+            {
+                return Ok((session.profile.clone(), session.token.clone()));
+            }
         }
-        let session = session.filter(|s| s.profile.id == profile.id && std::time::Instant::now() < s.expires)
-            .context("Conecta tu cuenta Microsoft, usa un perfil local o activa Jugar sin conexión para usar el perfil guardado.")?;
-        Ok((session.profile.clone(), session.token.clone()))
+        Ok((profile, "0".into()))
     }
 }
 
@@ -115,11 +115,19 @@ mod tests {
     }
 
     #[test]
-    fn local_play_needs_neither_account_nor_session_in_either_network_mode() {
-        let mut settings = Settings::default();
-        for offline in [false, true] {
-            settings.offline = offline;
-            let (profile, token) = settings.launch_identity(None).unwrap();
+    fn local_account_does_not_use_a_microsoft_session() {
+        let settings = Settings::default();
+        let session = Session {
+            profile: Profile {
+                name: "OnlinePlayer".into(),
+                id: "online".into(),
+                local: false,
+            },
+            token: "online-token".into(),
+            expires: std::time::Instant::now() + std::time::Duration::from_secs(60),
+        };
+        for session in [None, Some(&session)] {
+            let (profile, token) = settings.launch_identity(session).unwrap();
             assert!(profile.local);
             assert_eq!(profile.name, "Jugador");
             assert_eq!(token, "0");
@@ -127,8 +135,8 @@ mod tests {
     }
 
     #[test]
-    fn microsoft_profile_still_requires_a_valid_online_session() {
-        let mut settings = Settings {
+    fn microsoft_profile_uses_online_session_when_available_and_cached_identity_otherwise() {
+        let settings = Settings {
             profile: Some(Profile {
                 name: "Player".into(),
                 id: "0123456789abcdef0123456789abcdef".into(),
@@ -136,10 +144,8 @@ mod tests {
             }),
             ..Default::default()
         };
-        assert!(settings.launch_identity(None).is_err());
-        settings.offline = true;
         assert_eq!(settings.launch_identity(None).unwrap().1, "0");
-        settings.offline = false;
+        assert_eq!(settings.launch_identity(None).unwrap().1, "0");
         let session = Session {
             profile: settings.profile.clone().unwrap(),
             token: "test-token".into(),
@@ -241,6 +247,7 @@ pub enum Event {
     Installed(String),
     Profiles(Vec<GameProfile>),
     InstanceRemoved(String),
+    ContentChanged(String),
     ProfileCreated(Box<GameProfile>),
     LoaderVersions(Loader, String, Vec<String>),
     UpdateAvailable(crate::distribution::Release),

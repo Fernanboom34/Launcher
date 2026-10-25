@@ -10,7 +10,11 @@ use std::{
 
 pub fn client() -> Result<Client> {
     Ok(Client::builder()
-        .user_agent("LumaLauncher/0.1.0")
+        .user_agent(concat!(
+            "Fernanboom34/LumaLauncher/",
+            env!("CARGO_PKG_VERSION"),
+            " (https://github.com/Fernanboom34/Launcher)"
+        ))
         .connect_timeout(Duration::from_secs(15))
         .timeout(Duration::from_secs(600))
         .build()?)
@@ -45,7 +49,10 @@ pub fn download(
         return Ok(());
     }
     if offline {
-        bail!("Falta un archivo o está dañado: {}. Desactiva el modo offline y vuelve a instalar la versión.", target.display());
+        bail!(
+            "Falta un archivo o está dañado: {}. Conéctate a internet y repara la instalación.",
+            target.display()
+        );
     }
     anyhow::ensure!(
         url.starts_with("https://"),

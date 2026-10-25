@@ -1102,6 +1102,6 @@ mod tests {
         let error = prepare(&root, &version, &settings, true, &tx)
             .err()
             .unwrap();
-        assert!(format!("{error:#}").contains("modo offline"));
+        assert!(format!("{error:#}").contains("Conéctate a internet"));
     }
 }

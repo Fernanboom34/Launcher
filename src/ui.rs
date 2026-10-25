@@ -20,6 +20,7 @@ use std::{
 };
 
 mod art;
+mod catalog_ui;
 mod library;
 mod theme;
 mod workspace;
@@ -74,6 +75,7 @@ pub struct Launcher {
     preview_started: Instant,
     preview_requested: bool,
     workspace: workspace::Workspace,
+    catalog: catalog_ui::State,
     sessions: std::collections::HashMap<String, Session>,
     game_started: Option<Instant>,
     update_release: Option<crate::distribution::Release>,
@@ -199,6 +201,7 @@ impl Launcher {
             preview_started: Instant::now(),
             preview_requested: false,
             workspace: Default::default(),
+            catalog: Default::default(),
             sessions: Default::default(),
             game_started: None,
             update_release: None,
@@ -224,18 +227,35 @@ impl Launcher {
                 app.loader_query = Some((profile.loader, profile.minecraft));
             }
         }
-        if app.settings.offline || std::env::var_os("LUMA_PREVIEW").is_some() {
-            app.cache = true;
-            app.status = if app.settings.offline {
-                "Modo offline · usando el catálogo guardado"
-            } else {
-                "Catálogo guardado · listo para jugar"
+        let args: Vec<String> = std::env::args().collect();
+        if let Some(path) = args
+            .iter()
+            .position(|a| a == "--update-report")
+            .and_then(|i| args.get(i + 1))
+            .map(PathBuf::from)
+        {
+            if let (Ok(file), Ok(base)) =
+                (path.canonicalize(), app.root.join("updates").canonicalize())
+            {
+                if file.starts_with(base) {
+                    if let Ok(report) = std::fs::read_to_string(&file) {
+                        if report.trim() != "OK" {
+                            app.error =
+                                Some(format!("No se pudo actualizar Luma: {}", report.trim()));
+                        }
+                        let _ = std::fs::remove_file(file);
+                    }
+                }
             }
-            .into();
+        }
+
+        if std::env::var_os("LUMA_PREVIEW").is_some() {
+            app.cache = true;
+            app.status = "Catálogo guardado · listo para jugar".into();
         } else {
             app.refresh();
         }
-        if std::env::var_os("LUMA_PREVIEW").is_none() && !app.settings.offline {
+        if std::env::var_os("LUMA_PREVIEW").is_none() {
             let tx = app.tx.clone();
             std::thread::spawn(move || {
                 if let Ok(release) = crate::distribution::latest() {
@@ -247,10 +267,13 @@ impl Launcher {
         }
         if matches!(
             std::env::var("LUMA_PREVIEW_PAGE").as_deref(),
-            Ok("instance" | "worlds" | "logs" | "instance-settings" | "delete")
+            Ok("instance" | "worlds" | "logs" | "instance-settings" | "delete" | "catalog")
         ) {
             if let Some(p) = app.installations.first().cloned() {
                 app.open_instance(&p);
+                if std::env::var("LUMA_PREVIEW_PAGE").as_deref() == Ok("catalog") {
+                    app.open_catalog(&p, crate::catalog::Kind::Mod, None);
+                }
                 if std::env::var("LUMA_PREVIEW_PAGE").as_deref() == Ok("delete") {
                     app.workspace.remove = Some(p.id.clone());
                     app.workspace.remove_files = true;
@@ -346,6 +369,12 @@ impl Launcher {
     }
 
     fn run(&mut self, play: bool) {
+        if play && crate::browser::is_open() {
+            self.error =
+                Some("Cierra el navegador de contenido antes de iniciar Minecraft.".into());
+            return;
+        }
+
         self.pending_launch = play
             .then(|| self.settings.active_installation.clone())
             .filter(|id| !id.is_empty());
@@ -365,7 +394,7 @@ impl Launcher {
         };
         self.settings.selected = version.id.clone();
         self.save_settings();
-        let offline = self.settings.offline;
+        let offline = false;
         let identity = if play {
             match self.settings.launch_identity(self.session.as_ref()) {
                 Ok(identity) => {
@@ -471,6 +500,13 @@ impl Launcher {
                     self.installed.insert(id);
                 }
                 Event::Profiles(list) => self.installations = list,
+                Event::ContentChanged(id) => {
+                    if let Some(profile) =
+                        self.active_installation().filter(|p| p.id == id).cloned()
+                    {
+                        self.refresh_instance(&profile);
+                    }
+                }
                 Event::InstanceRemoved(id) => {
                     self.settings.instance_styles.remove(&id);
                     if self.settings.active_installation == id {
@@ -598,10 +634,7 @@ impl Launcher {
                     }
                 });
             if ui
-                .add_enabled(
-                    !self.busy && !self.settings.offline,
-                    egui::Button::new("Actualizar"),
-                )
+                .add_enabled(!self.busy, egui::Button::new("Actualizar"))
                 .clicked()
             {
                 self.refresh();
@@ -710,7 +743,7 @@ impl Launcher {
                             self.settings.accounts.push(profile.clone());
                         }
                         self.settings.profile = Some(profile);
-                        self.settings.offline = true;
+
                         self.session = None;
                         self.save_settings();
                     }
@@ -780,7 +813,13 @@ impl eframe::App for Launcher {
         // Captura únicamente el framebuffer de Luma para verificar su diseño.
         if let Ok(path) = std::env::var("LUMA_PREVIEW") {
             if !self.preview_requested
-                && self.preview_started.elapsed() >= Duration::from_millis(500)
+                && self.preview_started.elapsed()
+                    >= Duration::from_millis(
+                        std::env::var("LUMA_PREVIEW_DELAY_MS")
+                            .ok()
+                            .and_then(|v| v.parse().ok())
+                            .unwrap_or(500),
+                    )
             {
                 self.preview_requested = true;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
@@ -947,6 +986,7 @@ impl eframe::App for Launcher {
         }
         self.instance_windows(ctx);
         self.workspace_windows(ctx);
+        self.catalog_window(ctx);
         if let Some((id, mut name)) = self.rename_profile.clone() {
             egui::Window::new("Renombrar perfil")
                 .collapsible(false)

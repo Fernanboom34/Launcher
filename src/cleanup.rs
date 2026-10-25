@@ -85,6 +85,7 @@ fn app_directories() -> Vec<PathBuf> {
         }
     }
     result.push(crate::distribution::install_dir());
+    result.push(crate::distribution::legacy_install_dir());
     result
 }
 fn normalized(path: &Path) -> Result<PathBuf> {
@@ -214,37 +215,7 @@ pub fn delete_verified_directory(path: &Path, expected: &Path) -> Result<()> {
     walk(path, &expected)
 }
 fn ps_output(script: &str) -> Result<String> {
-    use base64::Engine;
-    let encoded = base64::engine::general_purpose::STANDARD.encode(
-        script
-            .encode_utf16()
-            .flat_map(u16::to_le_bytes)
-            .collect::<Vec<_>>(),
-    );
-    let mut command = Command::new("powershell.exe");
-    command.args([
-        "-NoProfile",
-        "-NonInteractive",
-        "-WindowStyle",
-        "Hidden",
-        "-EncodedCommand",
-        &encoded,
-    ]);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x08000000);
-    }
-    let output = command.output()?;
-    anyhow::ensure!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    Ok(String::from_utf8_lossy(&output.stdout)
-        .trim_start_matches('\u{feff}')
-        .trim()
-        .into())
+    crate::distribution::ps_output(script)
 }
 pub fn display_path(path: &Path) -> String {
     let text = path.to_string_lossy();
@@ -276,6 +247,7 @@ pub fn uninstall_plan() -> Result<UninstallPlan> {
     };
     let mut targets = inventory.executables;
     targets.push(crate::distribution::install_dir().join("Luma.exe"));
+    targets.push(crate::distribution::legacy_install_dir().join("Luma.exe"));
     for path in &targets {
         for candidate in [
             path.clone(),
@@ -373,7 +345,7 @@ pub fn ensure_not_running(plan: &UninstallPlan) -> Result<()> {
         .map(|p| quote(p))
         .collect::<Vec<_>>()
         .join(",");
-    let script=format!("$ErrorActionPreference='Stop';$targets=@({paths});$running=@(Get-CimInstance Win32_Process | Where-Object {{$p=$_;$exe=$p.ExecutablePath;$line=$p.CommandLine;$p.ProcessId -ne {} -and @($targets | Where-Object {{($exe -and ($exe.Equals($_,[StringComparison]::OrdinalIgnoreCase) -or $exe.StartsWith($_.TrimEnd('\\')+'\\',[StringComparison]::OrdinalIgnoreCase))) -or (($p.Name -eq 'java.exe' -or $p.Name -eq 'javaw.exe') -and $line -and $line.IndexOf($_,[StringComparison]::OrdinalIgnoreCase) -ge 0)}}).Count -gt 0}});if($running.Count){{throw 'Cierra Luma y Minecraft antes de desinstalar.'}}",std::process::id());
+    let script=format!("$ErrorActionPreference='Stop';$targets=@({paths});$running=@(Get-CimInstance Win32_Process | Where-Object {{$p=$_;$exe=$p.ExecutablePath;$line=$p.CommandLine;$p.ProcessId -ne {} -and @($targets | Where-Object {{($exe -and ($exe.Equals($_,[StringComparison]::OrdinalIgnoreCase) -or $exe.StartsWith($_.TrimEnd('\\')+'\\',[StringComparison]::OrdinalIgnoreCase))) -or (($p.Name -eq 'java.exe' -or $p.Name -eq 'javaw.exe' -or $p.Name -eq 'msedgewebview2.exe') -and $line -and $line.IndexOf($_,[StringComparison]::OrdinalIgnoreCase) -ge 0)}}).Count -gt 0}});if($running.Count){{throw 'Cierra Luma y Minecraft antes de desinstalar.'}}",std::process::id());
     ps_output(&script)?;
     Ok(())
 }
@@ -407,7 +379,23 @@ pub fn uninstall_files(plan: &UninstallPlan) -> Result<()> {
     Ok(())
 }
 pub fn uninstall(plan: &UninstallPlan) -> Result<()> {
-    uninstall_files(plan)?;
+    ensure_not_running(plan)?;
+    for path in &plan.directories {
+        anyhow::ensure!(
+            validate_private_directory(path, &[])? == *path,
+            "La carpeta cambió desde la confirmación"
+        );
+    }
+    for path in &plan.directories {
+        if crate::distribution::is_program_installation(path) {
+            crate::distribution::remove_program_installation(path)?;
+        }
+    }
+    let mut remaining = plan.clone();
+    remaining
+        .directories
+        .retain(|p| !crate::distribution::is_program_installation(p));
+    uninstall_files(&remaining)?;
     ps_output("$ErrorActionPreference='Stop';$key='HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Luma';if(Test-Path -LiteralPath $key){Remove-Item -LiteralPath $key -Recurse}")?;
     for dir in &plan.directories {
         if let Some(parent) = dir.parent() {

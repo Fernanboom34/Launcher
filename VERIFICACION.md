@@ -39,3 +39,17 @@ Las comprobaciones de instalación y arranque anteriores corresponden a la integ
 - La eliminación se ejecutó únicamente en carpetas de prueba aisladas. Se comprobó que archivos vecinos y destinos de enlaces permanecen intactos. No se ejecutó una desinstalación sobre la instalación ni los mundos reales del usuario.
 - El instalador incorpora listado de rutas, confirmación de borrado, selección explícita de carpetas externas compartidas y eliminación del propio instalador al cerrar. Se registra un acceso de desinstalación por usuario en Windows y se conserva el instalador en la carpeta de programas.
 - Revisión visual del instalador en modo desinstalación y del diálogo de borrado de instancia: las rutas son legibles, las acciones destructivas requieren confirmación y los botones quedan deshabilitados antes de aceptarla. Las vistas se cerraron sin ejecutar borrados sobre los datos del usuario.
+
+
+## Integración 0.7.0
+
+- Eliminada la franja negra: la altura del contenido de la cabecera cabe dentro del panel. Captura revisada y píxeles bajo la cabecera con el color del fondo, sin filas negras.
+- PowerShell devuelve mensajes UTF-8 simples y suprime el progreso serializado. La prueba reproduce una excepción con acentos y comprueba que no contiene CLIXML.
+- Instalación predeterminada en Program Files con elevación restringida a los archivos de programa. Registro, cuentas y datos permanecen en el contexto del usuario. Se reconoce también la ubicación anterior de instalación para desinstalarla.
+- Pruebas de destinos por tipo e instancia/mundo, nombres de archivo, dependencias compatibles, ciclos y conflictos de versiones.
+- Prueba real de API Modrinth: búsqueda y versiones de Mod Menu para Fabric 1.21.1, instalación de tres archivos incluyendo dependencias, verificación de JAR, reinstalación sin duplicados y búsqueda de datapacks/versiones ZIP de Terralith.
+- Prueba real de navegador WebView2 oculto: descarga HTTPS de Fabric API, traslado a la carpeta mods de la instancia de prueba y comprobación de SHA-1. Toda la prueba se realizó en una carpeta aislada.
+- Revisión visual del catálogo y del panel sin el interruptor de red. Las ventanas de prueba usan datos aislados y no crean perfiles dentro del ejecutable distribuido.
+- SmartScreen: el Setup local está NotSigned; el certificado encontrado en el almacén local es autofirmado. Se preparó firma opcional y documentación; no se instaló confianza artificial ni se desactivó protección de Windows. Una firma pública y la reputación del editor requieren configuración real adicional.
+- Los scripts de copia y retirada usados para Program Files se ejecutaron sin elevación en un destino de prueba: validación de hashes antes de copiar, copia de ambos EXE y retirada sin recorrer una unión hacia una carpeta vecina. No se ejecutó una instalación elevada sobre Program Files en el equipo del usuario.
+- 38 pruebas regulares del launcher y 10 del instalador pasaron; las dos comprobaciones en vivo se ejecutaron por separado y pasaron. Se preparó MSVC con CRT y cargador WebView2 estáticos para los releases públicos; las compilaciones locales GNU incluyen el DLL del cargador junto al ejecutable.

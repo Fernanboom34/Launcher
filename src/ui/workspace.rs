@@ -48,7 +48,7 @@ impl Launcher {
         self.workspace.file_path = p.game_dir.clone();
         self.refresh_instance(p);
     }
-    fn refresh_instance(&mut self, p: &GameProfile) {
+    pub(super) fn refresh_instance(&mut self, p: &GameProfile) {
         self.workspace.items = content::contents(&p.game_dir);
         self.workspace.worlds = content::worlds(&p.game_dir);
         self.workspace.refreshed = Some(Instant::now());
@@ -297,6 +297,17 @@ impl Launcher {
                             }
                         });
                 }
+                ui.separator();
+                let kind=crate::catalog::Kind::ALL[self.workspace.import_kind];
+                let world=if kind==crate::catalog::Kind::DataPack{self.workspace.worlds.get(self.workspace.import_world).map(|w|w.path.clone())}else{None};
+                let allowed=!self.busy&&(kind!=crate::catalog::Kind::DataPack||world.is_some());
+                if kind==crate::catalog::Kind::Mod&&p.loader==Loader::Vanilla{ui.label("Para usar mods .jar, configura Fabric, Forge o NeoForge en la instancia.");}
+                ui.horizontal_wrapped(|ui|{
+                    if ui.add_enabled(allowed&&(kind!=crate::catalog::Kind::Mod||p.loader!=Loader::Vanilla),primary("Explorar Modrinth")).clicked(){self.open_catalog(p,kind,world.clone());self.workspace.import_open=false;}
+                    for (label,curse) in [("Modrinth · Web",false),("CurseForge · Web",true)]{if ui.add_enabled(allowed,egui::Button::new(label)).clicked(){match crate::browser::open(p.clone(),kind,world.clone(),curse,self.tx.clone()){Ok(())=>self.workspace.import_open=false,Err(e)=>self.error=Some(e.to_string())}}}
+                });
+                ui.label(RichText::new("Las descargas van a la carpeta de este tipo de contenido en esta instancia.").small().color(palette().muted));
+                ui.separator();
                 if ui
                     .add_enabled(
                         !self.busy
@@ -549,8 +560,8 @@ impl Launcher {
                     ui.label("Versión del modloader");ui.add_enabled(edit.loader!=Loader::Vanilla,egui::TextEdit::singleline(&mut edit.loader_version).hint_text("Elige una versión compatible"));
                     if ui.add_enabled(!self.busy&&edit.loader!=Loader::Vanilla,egui::Button::new("Consultar versiones compatibles")).clicked(){let loader=edit.loader;let mc=edit.minecraft.clone();self.workspace.loader_key=Some((loader,mc.clone()));let tx=self.tx.clone();std::thread::spawn(move||{match profiles::loader_versions(loader,&mc){Ok(v)=>{let _=tx.send(Event::EditorLoaderVersions(v));}Err(e)=>{let _=tx.send(Event::Error(e.to_string()));}}});}
                     if self.workspace.loader_key.as_ref()==Some(&(edit.loader,edit.minecraft.clone())){egui::ComboBox::from_id_salt("edit_loader").selected_text(&edit.loader_version).show_ui(ui,|ui|{for v in &self.workspace.loader_choices{ui.selectable_value(&mut edit.loader_version,v.clone(),v);}});}
-                    ui.add_space(12.);if ui.add_enabled(!self.busy&&!self.settings.offline,primary("Guardar e instalar")).clicked(){let request=ProfileRequest{name:edit.name.clone(),minecraft:edit.minecraft.clone(),loader:edit.loader,loader_version:edit.loader_version.clone()};let root=self.root.clone();let settings=self.settings.clone();let profile=edit.clone();self.work(move|tx|profiles::update_installation(&root,profile,&request,&settings,&tx));}
-                    ui.separator();ui.heading("Reparar instancia");ui.label("Verifica los archivos descargados y reinstala las dependencias del juego y del loader. Conserva los mundos y el contenido.");if ui.add_enabled(!self.busy&&!self.settings.offline,egui::Button::new("Reparar")).clicked(){let request=ProfileRequest{name:p.name.clone(),minecraft:p.minecraft.clone(),loader:p.loader,loader_version:p.loader_version.clone()};let root=self.root.clone();let settings=self.settings.clone();let profile=p.clone();self.work(move|tx|profiles::update_installation(&root,profile,&request,&settings,&tx));}
+                    ui.add_space(12.);if ui.add_enabled(!self.busy,primary("Guardar e instalar")).clicked(){let request=ProfileRequest{name:edit.name.clone(),minecraft:edit.minecraft.clone(),loader:edit.loader,loader_version:edit.loader_version.clone()};let root=self.root.clone();let settings=self.settings.clone();let profile=edit.clone();self.work(move|tx|profiles::update_installation(&root,profile,&request,&settings,&tx));}
+                    ui.separator();ui.heading("Reparar instancia");ui.label("Verifica los archivos descargados y reinstala las dependencias del juego y del loader. Conserva los mundos y el contenido.");if ui.add_enabled(!self.busy,egui::Button::new("Reparar")).clicked(){let request=ProfileRequest{name:p.name.clone(),minecraft:p.minecraft.clone(),loader:p.loader,loader_version:p.loader_version.clone()};let root=self.root.clone();let settings=self.settings.clone();let profile=p.clone();self.work(move|tx|profiles::update_installation(&root,profile,&request,&settings,&tx));}
                 }
                 2=>{ui.heading("Java y memoria");runtime_editor(ui,&mut runtime);}
                 3=>{ui.heading("Ventana del juego");window_editor(ui,&mut runtime);}

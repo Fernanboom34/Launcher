@@ -1,6 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod auth;
+mod browser;
+mod catalog;
 #[allow(dead_code)]
 mod cleanup;
 mod content;
@@ -124,7 +126,6 @@ fn headless(args: &[String]) -> anyhow::Result<()> {
         if local_play {
             settings.local_name = args.get(3).cloned().unwrap_or_else(|| "Jugador".into());
             settings.profile = Some(model::Profile::offline(&settings.local_name)?);
-            settings.offline = true;
         }
         let installation = engine::prepare(&root, version, &settings, offline, &tx)?;
         if local_play {

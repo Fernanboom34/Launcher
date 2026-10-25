@@ -10,12 +10,34 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Preparar Rust estable
+        shell: pwsh
+        run: |
+          rustup update stable --no-self-update
+          rustup default stable
+      - name: Preparar certificado de firma opcional
+        shell: pwsh
+        env:
+          LUMA_SIGNING_PFX_BASE64: ${{ secrets.LUMA_SIGNING_PFX_BASE64 }}
+          LUMA_SIGNING_PFX_PASSWORD: ${{ secrets.LUMA_SIGNING_PFX_PASSWORD }}
+        run: |
+          if ($env:LUMA_SIGNING_PFX_BASE64) {
+            $pfxFile = Join-Path $env:RUNNER_TEMP 'luma-signing.pfx'
+            [IO.File]::WriteAllBytes($pfxFile, [Convert]::FromBase64String($env:LUMA_SIGNING_PFX_BASE64))
+            try {
+              $password = ConvertTo-SecureString $env:LUMA_SIGNING_PFX_PASSWORD -AsPlainText -Force
+              $certificate = Import-PfxCertificate -FilePath $pfxFile -CertStoreLocation Cert:\CurrentUser\My -Password $password
+              "LUMA_SIGNING_CERT_THUMBPRINT=$($certificate.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            } finally { Remove-Item -LiteralPath $pfxFile -Force }
+          }
       - name: Verificar y compilar
         shell: pwsh
         env:
           LUMA_MICROSOFT_CLIENT_ID: ${{ secrets.LUMA_MICROSOFT_CLIENT_ID }}
+          RUSTFLAGS: '-C target-feature=+crt-static'
         run: |
           cargo fmt --check
+          if ($LASTEXITCODE) { throw 'El formato falló' }
           cargo clippy --locked --all-targets -- -D warnings
           if ($LASTEXITCODE) { throw 'Clippy falló' }
           cargo test --locked
@@ -31,8 +53,8 @@ jobs:
           if ('${{ github.ref_type }}' -eq 'tag' -and '${{ github.ref_name }}' -ne $tag) { throw 'El tag no coincide con Cargo.toml' }
           gh release view $tag --repo '${{ github.repository }}' *> $null
           if ($LASTEXITCODE) {
-            gh release create $tag "artifacts/Luma-$version.exe" artifacts/Luma-Setup.exe artifacts/luma-release.json --repo '${{ github.repository }}' --target '${{ github.sha }}' --title "Luma $version" --generate-notes
+            gh release create $tag "artifacts/Luma-$version.exe" artifacts/Luma-Setup.exe artifacts/luma-release.json artifacts/SHA256SUMS.txt --repo '${{ github.repository }}' --target '${{ github.sha }}' --title "Luma $version" --generate-notes
           } else {
-            gh release upload $tag "artifacts/Luma-$version.exe" artifacts/Luma-Setup.exe artifacts/luma-release.json --repo '${{ github.repository }}' --clobber
+            gh release upload $tag "artifacts/Luma-$version.exe" artifacts/Luma-Setup.exe artifacts/luma-release.json artifacts/SHA256SUMS.txt --repo '${{ github.repository }}' --clobber
           }
           if ($LASTEXITCODE) { throw 'No se pudo publicar el release' }

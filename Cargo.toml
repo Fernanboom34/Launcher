@@ -1,6 +1,6 @@
 [package]
 name = "luma-launcher"
-version = "0.6.1"
+version = "0.7.0"
 edition = "2021"
 description = "Launcher de Minecraft Java Edition escrito en Rust"
 
@@ -33,3 +33,7 @@ shell-words = "1"
 strip = true
 lto = "thin"
 
+
+[target.'cfg(windows)'.dependencies]
+wry = { version = "0.57.1", default-features = false, features = ["os-webview"] }
+tao = "0.35"
