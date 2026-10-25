@@ -1,15 +1,15 @@
 #ifndef SetupVersion
-  #define SetupVersion "0.7.1-beta.3-windows"
+  #define SetupVersion "0.8.0-beta.1-windows"
 #endif
 #ifndef ReleaseTag
-  #define ReleaseTag "v0.7.1-beta.3-windows"
+  #define ReleaseTag "v0.8.0-beta.1-windows"
 #endif
 
 [Setup]
 AppId={{41EDDB92-F249-4516-9214-32958CA71088}
 AppName=Luma Launcher
 AppVersion={#SetupVersion}
-VersionInfoVersion=0.7.1.0
+VersionInfoVersion=0.8.0.0
 AppPublisher=Luma
 AppPublisherURL=https://github.com/Fernanboom34/Launcher
 DefaultDirName={autopf}\Luma Launcher
