@@ -12,6 +12,8 @@ Verificacion: [Actions 40173302914](https://github.com/Fernanboom34/Launcher/act
 
 Beta.3: [Actions 40221754955](https://github.com/Fernanboom34/Launcher/actions/runs/40221754955) pasa 52 pruebas regulares y el ciclo nativo por la entrada normal del instalador. Tambien comprueba la retirada legada preservando un archivo desconocido. El EXE MSVC final guarda el mismo Fresh Animations del reporte con SHA1 correcto en una instancia desechable mediante scripts/check-web-download.py.
 
+Beta0.8: [Actions 40227023522](https://github.com/Fernanboom34/Launcher/actions/runs/40227023522) pasa54 pruebas regulares, compilacion MSVC/Inno y ciclo nativo. La galeria de skins del EXE final se reviso con datos aislados, sin modificar una cuenta ni instalacion real.
+
 Limites y pruebas pendientes:
 
 - Revisar el actualizador de Luma para no seguir usando comandos genericos de PowerShell en Program Files. El nuevo Setup no cambia el actualizador del EXE.
