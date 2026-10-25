@@ -3,6 +3,7 @@
 Actualizado: 25/10/2026 (México). Solicitud actual del usuario: limpiar el proyecto (~8 GB), investigar Defender que detecta Setup como Trojan:Win32/Bearfoos.A!ml, corregir crash al abrir webs en Windows 11 Enterprise LTSC, Play de mundos y controles de contenido (switch y tres puntos). Mantener este archivo actualizado para retomar si se acaba la cuota.
 
 ## Reglas y contexto
+- INSTRUCCIÓN DEL USUARIO AL FINAL DE ESTA SESIÓN: cuando el trabajo de verificación/publicación y guardado termine, ejecutar un comando para apagar la PC. Solicitud explícita. Usar apagado normal sin /f (shutdown /s /t 0), después de guardar commits/registros. No apagar antes de terminar los pasos dependientes ni mientras se necesita interacción local.
 - Proyecto: C:\Users\PCERDITA\Documents\Launcher. Rust/egui, Windows. Repositorio público Fernanboom34/Launcher.
 - Último release 0.7.0. No firmamos con certificado: el instalador está NotSigned; se preparó firma opcional. Defender es una detección de malware, distinta de SmartScreen. No desactivar Defender, crear exclusiones ni restaurar la cuarentena para probar.
 - Preservar mundos, cuentas y datos reales (LocalAppData/Luma/LumaLauncher/data). No desinstalar ni limpiar datos del jugador.
