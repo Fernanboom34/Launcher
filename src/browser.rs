@@ -625,6 +625,26 @@ mod tests {
         }
     }
     #[test]
+    #[ignore = "Descarga el resource pack del reporte del usuario en una instancia desechable"]
+    fn live_webview_reported_fresh_animations_pack() {
+        let mut profile = crate::catalog::test_profile();
+        profile.game_dir = PathBuf::from(crate::cleanup::display_path(&profile.game_dir));
+        let target = crate::catalog::destination(&profile, Kind::ResourcePack, None).unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        window(&profile, Kind::ResourcePack, &target,
+            "https://cdn.modrinth.com/data/50dA9Sha/versions/tvGVYMD4/FreshAnimations_v1.11.1_26.1%2B.zip",
+            &tx, true).unwrap();
+        for event in rx.try_iter() {
+            if let Event::Status(s) = event {
+                println!("{s}");
+            }
+        }
+        let hash = crate::net::sha1_file(&target.join("FreshAnimations_v1.11.1_26.1+.zip"));
+        let _ =
+            crate::cleanup::delete_verified_directory(&profile.storage_dir, &profile.storage_dir);
+        assert_eq!(hash.unwrap(), "ae9175983c5109162c86daae1acff34ccf623faf");
+    }
+    #[test]
     #[ignore = "Abre un WebView2 oculto y descarga un archivo real en una carpeta aislada"]
     fn live_webview_download_uses_the_selected_instance_folder() {
         let mut profile = crate::catalog::test_profile();

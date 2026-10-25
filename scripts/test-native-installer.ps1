@@ -31,6 +31,18 @@ Get-Content -LiteralPath $uninstallLog
 if ($process.ExitCode -or (Test-Path -LiteralPath $installed)) { throw 'No se retiro la aplicacion de prueba' }
 if ((Get-Content -LiteralPath $preserved -Raw).Trim() -ne 'player data must remain intact') { throw 'Se alteraron datos ajenos a la instalacion' }
 
+# Exercise pre-Inno application removal without touching any real installation.
+$legacyFixture = Join-Path $env:RUNNER_TEMP 'Luma-legacy-app-fixture'
+New-Item -ItemType Directory -Path $legacyFixture -Force | Out-Null
+foreach ($name in @('Luma.exe','Luma-Setup.exe','Luma.exe.previous','Luma.download','unknown-user-file.txt')) {
+    Set-Content -LiteralPath (Join-Path $legacyFixture $name) -Value 'isolated fixture'
+}
+$process = Start-Process -FilePath (Join-Path $fixtureOutput 'Luma-Setup-fixture.exe') -ArgumentList @('/LUMA_ACTION=legacy-remove','/VERYSILENT','/SP-','/SUPPRESSMSGBOXES') -WindowStyle Hidden -Wait -PassThru
+foreach ($name in @('Luma.exe','Luma-Setup.exe','Luma.exe.previous','Luma.download')) {
+    if (Test-Path -LiteralPath (Join-Path $legacyFixture $name)) { throw "Quedo el archivo legado de prueba: $name" }
+}
+if (!(Test-Path -LiteralPath (Join-Path $legacyFixture 'unknown-user-file.txt'))) { throw 'Se elimino contenido desconocido de la instalacion legada' }
+
 # Refresh the real bundle checksums after replacing the old Rust Setup with
 # the newly compiled native installer. No fixture binary enters artifacts.
 $manifest = Get-Content -LiteralPath artifacts/luma-release.json | ConvertFrom-Json

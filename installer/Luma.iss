@@ -132,11 +132,13 @@ var
   AppDir, AppExe, Uninstaller: String;
 begin
   Result := False;
-  if ExpandConstant('{param:LUMA_ENGINE|0}') = '1' then begin
-    Result := IsAdminInstallMode;
-    if not Result then MsgBox('El motor de instalacion requiere /ALLUSERS.', mbError, MB_OK);
+#ifdef FixturePayload
+  if ExpandConstant('{param:LUMA_ACTION|}') = 'legacy-remove' then begin
+    if GetEnv('RUNNER_TEMP') = '' then RaiseException('Falta RUNNER_TEMP para la fixture');
+    RemoveLegacyProgramFiles(AddBackslash(GetEnv('RUNNER_TEMP')) + 'Luma-legacy-app-fixture');
     Exit;
   end;
+#endif
   AppDir := ExpandConstant('{commonpf64}\Luma Launcher');
   AppExe := AddBackslash(AppDir) + 'Luma.exe';
   Uninstaller := AddBackslash(AppDir) + 'unins000.exe';
