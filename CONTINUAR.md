@@ -32,6 +32,9 @@ Actualizado: 25/10/2026 (México). Solicitud actual del usuario: limpiar el proy
 - Navegador: compilación GNU local y Clippy all-targets sin advertencias; 38 pruebas main y 10 setup pasaron. Se abrieron las webs reales Modrinth y CurseForge en procesos hijo ocultos, datos aislados, runtime ya instalado; cerraron con código 0 y sin stderr. Script reproducible guardado en esa rama: `scripts/check-browser-process.py ruta/al/Luma.exe`. Env LUMA_BROWSER_PROBE cierra tras 35 s y no instala runtime. Pendiente MSVC/flujo completo desde botones.
 - Rama `security/defender-review`: commit `349f5d8`, subida a GitHub. README diferencia malware de SmartScreen y REVISION-DEFENDER.md contiene evidencia, hash, hipótesis sin afirmar causa, plan y texto en inglés para Microsoft. Se añadió advertencia al inicio del release público 0.7.0 mediante API; no se reemplazaron binarios ni se alteró Defender.
 - Rama `chore/project-cleanup`: configuración dev/test sin símbolos ni incremental para reducir tamaño futuro; script de limpieza con comprobación de rutas y rechazo de enlaces. El script se ejecutó correctamente, y cargo metadata aceptó Cargo.toml. El ajuste del perfil cambia cómo se recompila, no lógica de juego.
+- Tamaño final medido tras limpiar: **0,903 GiB**, casi todo .tools. No se volvió a compilar localmente después de limpiarlo.
+- Rama `ci/branch-verification`: commits `2e34860` y `a945113`, subidos. Extiende el workflow release.yml con input source_ref y publish=false por defecto, y artefacto de prueba que excluye Setup. Únicamente en ESTA RAMA el dispatch manual no publica por defecto; el workflow de main sigue publicando, precaución.
+- Verificación MSVC del navegador solicitada sin publicar: [Actions 40167680299](https://github.com/Fernanboom34/Launcher/actions/runs/40167680299), workflow ref `ci/branch-verification`, input source_ref=`fix/content-browser-process`, publish=false. Estaba en curso al registrar este punto. Revisar estado/artefacto `Luma-verificacion-40167680299`, probar EXE MSVC con el script de la rama del navegador y anotar resultado. **No descargar/ejecutar un Setup nuevo**: está excluido del artefacto.
 
 ## Comandos para retomar
 ```powershell
@@ -46,3 +49,5 @@ cargo +stable-x86_64-pc-windows-gnu test --locked
 Después de la limpieza habrá que recompilar dependencias. El EXE GNU necesita WebView2Loader.dll (el script de smoke añade su carpeta del build al PATH); no distribuirlo solo. Los helpers antiguos en artifacts se eliminaron a propósito: si hace falta GitHub API, usar git credential fill solo en memoria, nunca imprimir credenciales. El workflow actual de main PUBLICA al ejecutarlo manualmente: no dispararlo para verificar una rama sin proteger el paso de publicación.
 
 `main` permanece en `1057f3a8e4d099d1a922ca79c15c6274f3ffb0c9`, sin ninguno de estos arreglos todavía.
+
+Rama que debe quedar seleccionada para encontrar este registro: `chore/project-cleanup`. Los cambios de otras ramas NO están incorporados a ella. El archivo se guarda en disco y Git; actualizarlo antes de cambiar de rama o cerrar la sesión.
