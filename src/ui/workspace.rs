@@ -217,7 +217,7 @@ impl Launcher {
         ));
         egui::ScrollArea::vertical().id_salt("instance_content").show(ui,|ui|{
             if items.is_empty(){card().show(ui,|ui|{ui.label("Esta vista está vacía. Añade tus archivos para personalizar la instancia.");});}
-            for item in items {let response=card().inner_margin(12.).show(ui,|ui|{ui.set_min_width(ui.available_width());ui.horizontal(|ui|{ui.vertical(|ui|{ui.strong(&item.name);ui.label(RichText::new(&item.kind).small().color(palette().muted));});ui.with_layout(Layout::right_to_left(Align::Center),|ui|{let mut enabled=item.enabled;if ui.add_enabled_ui(!self.busy,|ui|switch(ui,&mut enabled)).inner.changed(){self.content_action(content::toggle(&p.game_dir,&item),p);}ui.menu_button("···",|ui|{self.content_menu(ui,p,&item);});});});}).response;
+            for item in items {let response=interactive_card(ui,|ui|{ui.set_min_width(ui.available_width());ui.horizontal(|ui|{ui.vertical(|ui|{ui.strong(&item.name);ui.label(RichText::new(&item.kind).small().color(palette().muted));});ui.with_layout(Layout::right_to_left(Align::Center),|ui|{let mut enabled=item.enabled;if ui.add_enabled_ui(!self.busy,|ui|switch(ui,&mut enabled)).inner.changed(){self.content_action(content::toggle(&p.game_dir,&item),p);}ui.menu_button("···",|ui|{self.content_menu(ui,p,&item);});});});}).response;
                 response.context_menu(|ui|self.content_menu(ui,p,&item));ui.add_space(3.);
             }
         });
@@ -381,26 +381,25 @@ impl Launcher {
                     {
                         continue;
                     }
-                    let response = card()
-                        .show(ui, |ui| {
-                            ui.set_min_width(ui.available_width());
-                            ui.horizontal(|ui| {
-                                ui.vertical(|ui| {
-                                    ui.strong(&world.name);
-                                    ui.label(RichText::new(&world.mode).color(palette().muted));
-                                });
-                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                    if ui.add_enabled(!self.busy, primary("▶ Jugar")).clicked() {
-                                        self.workspace.pending_world = Some(world.folder.clone());
-                                        self.play_instance(p);
-                                    }
-                                    if ui.button("Carpeta").clicked() {
-                                        self.open_path(world.path.clone());
-                                    }
-                                });
+                    let response = interactive_card(ui, |ui| {
+                        ui.set_min_width(ui.available_width());
+                        ui.horizontal(|ui| {
+                            ui.vertical(|ui| {
+                                ui.strong(&world.name);
+                                ui.label(RichText::new(&world.mode).color(palette().muted));
                             });
-                        })
-                        .response;
+                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                if ui.add_enabled(!self.busy, primary("▶ Jugar")).clicked() {
+                                    self.workspace.pending_world = Some(world.folder.clone());
+                                    self.play_instance(p);
+                                }
+                                if ui.button("Carpeta").clicked() {
+                                    self.open_path(world.path.clone());
+                                }
+                            });
+                        });
+                    })
+                    .response;
                     response.context_menu(|ui| {
                         if ui.button("Abrir carpeta").clicked() {
                             self.open_path(world.path.clone());
@@ -819,6 +818,16 @@ if let Some(release)=self.update_release.clone(){ui.label(format!("Nueva versió
         self.workspace.loader_choices = choices;
     }
 }
+// Register the row's background before its children. Adding click sense to a
+// Frame response after drawing its buttons puts the background over them.
+fn interactive_card<R>(
+    ui: &mut egui::Ui,
+    contents: impl FnOnce(&mut egui::Ui) -> R,
+) -> egui::InnerResponse<R> {
+    ui.scope_builder(egui::UiBuilder::new().sense(Sense::click()), |ui| {
+        card().inner_margin(12.).show(ui, contents).inner
+    })
+}
 fn runtime_editor(ui: &mut egui::Ui, r: &mut model::RuntimeOptions) {
     ui.label("Memoria máxima");
     ui.horizontal(|ui| {
@@ -916,4 +925,65 @@ fn switch_row(ui: &mut egui::Ui, value: &mut bool, label: &str) -> egui::Respons
             .inner
     })
     .inner
+}
+
+#[cfg(test)]
+mod interaction_tests {
+    use super::*;
+    #[test]
+    fn row_context_menu_does_not_cover_switch_play_or_overflow_menu() {
+        let ctx = egui::Context::default();
+        let mut enabled = false;
+        let mut played = false;
+        let mut overflow_open = false;
+        let mut rects = [Rect::NOTHING; 3];
+        let mut frame = |events: Vec<egui::Event>| {
+            let _ = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800., 600.))),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        let row = interactive_card(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                let toggle = switch(ui, &mut enabled);
+                                rects[0] = toggle.rect;
+                                let play = ui.button("Jugar");
+                                rects[1] = play.rect;
+                                played |= play.clicked();
+                                let menu = ui.menu_button("···", |ui| {
+                                    overflow_open = true;
+                                    ui.label("Acciones");
+                                });
+                                rects[2] = menu.response.rect;
+                            });
+                        });
+                        row.response.context_menu(|ui| {
+                            ui.label("Menú contextual");
+                        });
+                    });
+                },
+            );
+            rects
+        };
+        let rects = frame(vec![]);
+        for rect in rects {
+            let pos = rect.center();
+            frame(vec![egui::Event::PointerMoved(pos)]);
+            for pressed in [true, false] {
+                frame(vec![egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                }]);
+            }
+            frame(vec![]);
+        }
+        assert!(enabled, "el switch debe responder al clic izquierdo");
+        assert!(played, "Jugar debe responder al clic izquierdo");
+        assert!(overflow_open, "los tres puntos deben abrir su menú");
+    }
 }
