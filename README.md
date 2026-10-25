@@ -1,8 +1,12 @@
 # Luma
 
-## Beta 0.7.1-beta.1
+## Beta 0.7.1-beta.2-windows
 
-Esta rama integra los arreglos de interacción de Contenido/Mundos y el navegador en un proceso separado para probarlos sin modificar main. Cualquier distribución de esta versión debe marcarse como pre-release. No incluye un instalador nuevo: el Setup 0.7.0 tiene una detección de Defender pendiente y se está preparando su sustitución en `fix/standard-installer`. No se recomienda restaurar cuarentena ni desactivar protecciones. La beta no reemplaza el release estable ni se ofrece como actualización automática a sus usuarios.
+Esta rama integra los arreglos de interacción, el navegador en proceso separado y las descargas `blob:` de páginas HTTPS. El panel nativo de descargas permanece disponible para decisiones del navegador.
+
+Incluye un Setup nuevo basado en Inno Setup. Instala esta beta en Program Files y ofrece instalar/actualizar o desinstalar. El borrado opcional de datos se confirma en una ventana de Luma que corre con el usuario original; después el desinstalador nativo retira la aplicación con los permisos de Windows. Para una instalación antigua primero instala esta actualización, conservando tus datos. Desde Aplicaciones de Windows el desinstalador nativo conserva los datos; abre el Setup para elegir su eliminación completa. El archivo Setup descargado permanece en Descargas.
+
+Esta distribución es solo una pre-release de Windows; no modifica main ni se ofrece como actualización automática estable. El Setup 0.7.0 tuvo una detección de Defender en un equipo y no se reprodujo en la laptop del usuario; no es un diagnóstico de GitHub Actions. El cambio de instalador todavía requiere comparación con Defender activo. No se recomienda permitir amenazas ni restaurar cuarentena. Esta beta descarga su payload de su propio tag para que la prueba sea reproducible.
 
 Launcher nativo de **Minecraft Java Edition para Windows x64**, escrito en Rust con egui. Biblioteca de instancias, temas y acentos menta, con catálogo de contenido y navegador web integrado.
 
