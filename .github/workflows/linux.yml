@@ -1,0 +1,68 @@
+name: Verificar Linux x64 y compatibilidad Windows
+on:
+  push:
+    branches: ['feature/linux-*']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows-compatibility:
+    runs-on: windows-latest
+    env:
+      RUSTFLAGS: '-C target-feature=+crt-static'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Preparar Rust y verificar Windows sin publicar
+        shell: pwsh
+        run: |
+          rustup update stable --no-self-update
+          rustup default stable
+          rustup component add rustfmt clippy
+          cargo fmt --check
+          if ($LASTEXITCODE) { throw 'El formato falló' }
+          cargo clippy --locked --all-targets -- -D warnings
+          if ($LASTEXITCODE) { throw 'Clippy falló' }
+          cargo test --locked
+          if ($LASTEXITCODE) { throw 'Las pruebas fallaron' }
+          cargo build --locked --bins
+          if ($LASTEXITCODE) { throw 'La compilación falló' }
+  linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Preparar dependencias de Linux
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libx11-6 libx11-xcb1 libxcb1 libxcursor1 libxi6 libxrandr2 libxkbcommon0 libxkbcommon-x11-0 libgl1 libegl1 libwayland-client0 libwayland-cursor0 libwayland-egl1 xdg-utils xvfb
+          rustup update stable --no-self-update
+          rustup default stable
+          rustup component add rustfmt clippy
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: linux-x64-${{ hashFiles('Cargo.lock') }}
+      - name: Formato, Clippy y pruebas
+        run: |
+          cargo fmt --check
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo test --locked --all-targets
+      - name: Compilar e instalar en un usuario de prueba
+        run: |
+          bash scripts/build-linux.sh
+          python3 scripts/test-linux-package.py
+      - name: Arranque gráfico con datos aislados
+        run: |
+          mkdir -p target/linux-ui
+          xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 LUMA_DATA_DIR="$PWD/target/linux-ui" LUMA_PREVIEW="$PWD/artifacts/linux-home.png" timeout 30s target/release/luma-launcher
+          test -s artifacts/linux-home.png
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Luma-linux-x64
+          path: |
+            artifacts/*linux-x64*
+            artifacts/*amd64.deb
+            artifacts/linux-home.png

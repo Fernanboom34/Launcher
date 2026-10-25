@@ -306,7 +306,12 @@ impl Launcher {
                     if ui.add_enabled(allowed&&(kind!=crate::catalog::Kind::Mod||p.loader!=Loader::Vanilla),primary("Explorar Modrinth")).clicked(){self.open_catalog(p,kind,world.clone());self.workspace.import_open=false;}
                     for (label,curse) in [("Modrinth · Web",false),("CurseForge · Web",true)]{if ui.add_enabled(allowed,egui::Button::new(label)).clicked(){match crate::browser::open(p.clone(),kind,world.clone(),curse,self.tx.clone()){Ok(())=>self.workspace.import_open=false,Err(e)=>self.error=Some(e.to_string())}}}
                 });
-                ui.label(RichText::new("Las descargas van a la carpeta de este tipo de contenido en esta instancia.").small().color(palette().muted));
+                let download_note = if cfg!(windows) {
+                    "Las descargas van a la carpeta de este tipo de contenido en esta instancia."
+                } else {
+                    "Las webs se abren en tu navegador. Añade sus descargas con Elegir archivos…; el catálogo integrado instala directamente en esta instancia."
+                };
+                ui.label(RichText::new(download_note).small().color(palette().muted));
                 ui.separator();
                 if ui
                     .add_enabled(
@@ -565,7 +570,7 @@ impl Launcher {
                 }
                 2=>{ui.heading("Java y memoria");runtime_editor(ui,&mut runtime);}
                 3=>{ui.heading("Ventana del juego");window_editor(ui,&mut runtime);}
-                _=>{ui.heading("Comandos de inicio");ui.label("Se ejecutan en la carpeta de la instancia mediante cmd.exe.");ui.label("Antes de iniciar");ui.text_edit_multiline(&mut runtime.before);ui.label("Después de cerrar");ui.text_edit_multiline(&mut runtime.after);}
+                _=>{ui.heading("Comandos de inicio");ui.label(crate::platform::HOOK_DESCRIPTION);ui.label("Antes de iniciar");ui.text_edit_multiline(&mut runtime.before);ui.label("Después de cerrar");ui.text_edit_multiline(&mut runtime.after);}
             }
             if self.workspace.settings_tab!=1{ui.add_space(16.);if ui.add_enabled(!self.busy,primary("Guardar cambios")).clicked(){let mut list=self.installations.clone();if let Some(item)=list.iter_mut().find(|x|x.id==edit.id){if self.workspace.settings_tab==0{item.name=edit.name.clone();}else{item.runtime=Some(runtime.clone());}}match profiles::save(&self.root,&list){Ok(())=>{self.installations=list;self.status="Configuración de instancia guardada".into();},Err(e)=>self.error=Some(e.to_string())}}}
         });});});
@@ -681,10 +686,11 @@ if let Some(release)=self.update_release.clone(){ui.label(format!("Nueva versió
         });
     }
     pub(super) fn download_update(&mut self, release: distribution::Release) {
-        let target = self
-            .root
-            .join("updates")
-            .join(format!("Luma-{}.exe", release.version));
+        let target = self.root.join("updates").join(format!(
+            "Luma-{}{}",
+            release.version,
+            crate::platform::EXECUTABLE_SUFFIX
+        ));
         self.work(move |tx| {
             let (progress, rx) = mpsc::channel();
             let events = tx.clone();
@@ -837,22 +843,17 @@ fn runtime_editor(ui: &mut egui::Ui, r: &mut model::RuntimeOptions) {
             .desired_width(440.),
     );
     ui.horizontal(|ui| {
-        if ui.button("Buscar java.exe…").clicked() {
-            if let Some(path) = rfd::FileDialog::new()
-                .add_filter("Java", &["exe"])
-                .pick_file()
-            {
+        if ui.button("Buscar Java…").clicked() {
+            let dialog = rfd::FileDialog::new();
+            #[cfg(windows)]
+            let dialog = dialog.add_filter("Java", &["exe"]);
+            if let Some(path) = dialog.pick_file() {
                 r.java = path.display().to_string();
             }
         }
         if ui.button("Detectar").clicked() {
-            if let Ok(output) = std::process::Command::new("where.exe")
-                .arg("java.exe")
-                .output()
-            {
-                if let Some(path) = String::from_utf8_lossy(&output.stdout).lines().next() {
-                    r.java = path.into();
-                }
+            if let Some(path) = crate::platform::system_java() {
+                r.java = path.display().to_string();
             }
         }
         if ui.button("Usar Java automático").clicked() {

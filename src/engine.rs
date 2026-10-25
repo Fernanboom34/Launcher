@@ -1,6 +1,6 @@
 use crate::{
     model::{self, Event, Manifest, Profile, Settings, Version},
-    net,
+    net, platform,
 };
 use anyhow::{bail, Context, Result};
 use rayon::prelude::*;
@@ -46,7 +46,9 @@ pub fn catalog(root: &Path, tx: &Sender<Event>) -> Result<()> {
 pub(crate) fn path_under(root: &Path, relative: &str) -> Result<PathBuf> {
     let path = Path::new(relative);
     anyhow::ensure!(
-        !path.is_absolute() && path.components().all(|c| matches!(c, Component::Normal(_))),
+        !relative.contains(['\\', ':'])
+            && !path.is_absolute()
+            && path.components().all(|c| matches!(c, Component::Normal(_))),
         "Ruta de archivo no segura: {relative}"
     );
     Ok(root.join(path))
@@ -62,7 +64,7 @@ fn allows(rules: Option<&Value>) -> bool {
             if os
                 .get("name")
                 .and_then(Value::as_str)
-                .is_some_and(|name| name != "windows")
+                .is_some_and(|name| name != platform::OS)
             {
                 continue;
             }
@@ -75,12 +77,12 @@ fn allows(rules: Option<&Value>) -> bool {
             }
             if let Some(pattern) = os.get("version").and_then(Value::as_str) {
                 // Las reglas oficiales distinguen Windows 10+ de las ediciones anteriores.
-                if !regex::Regex::new(pattern).is_ok_and(|r| r.is_match(windows_version())) {
+                if !regex::Regex::new(pattern).is_ok_and(|r| r.is_match(platform::os_version())) {
                     continue;
                 }
             }
             if let Some(range) = os.get("versionRange") {
-                let current = version_tuple(windows_version());
+                let current = version_tuple(platform::os_version());
                 if range["min"]
                     .as_str()
                     .is_some_and(|v| current < version_tuple(v))
@@ -112,25 +114,6 @@ fn version_tuple(value: &str) -> Vec<u32> {
         .chain(std::iter::repeat(0))
         .take(4)
         .collect()
-}
-
-fn windows_version() -> &'static str {
-    static VERSION: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-    VERSION.get_or_init(|| {
-        let mut command = Command::new("cmd");
-        command.args(["/C", "ver"]);
-        hide_console(&mut command);
-        command
-            .output()
-            .ok()
-            .and_then(|output| {
-                regex::Regex::new(r"\d+\.\d+\.\d+")
-                    .ok()?
-                    .find(&String::from_utf8_lossy(&output.stdout))
-                    .map(|v| v.as_str().to_owned())
-            })
-            .unwrap_or_else(|| "10.0.0".into())
-    })
 }
 
 #[derive(Clone)]
@@ -335,7 +318,11 @@ pub fn prepare(
     let java = java_runtime(&model::root(), major, &settings.java, offline, tx)?;
     let libraries = root.join("libraries");
     let assets_root = root.join("assets");
-    let natives = dir.join("natives");
+    let natives = dir.join(if cfg!(windows) {
+        "natives"
+    } else {
+        "natives-linux-x64"
+    });
     fs::create_dir_all(&natives)?;
     let mut jobs = BTreeMap::new();
     let jar_id = model::safe_component(metadata["jar"].as_str().unwrap_or(&version.id))?;
@@ -373,7 +360,10 @@ pub fn prepare(
                 let job = artifact(item, &libraries)?;
                 classpath.push(job.path.clone());
                 add_job(&mut jobs, job);
-            } else if let Some(name) = lib["name"].as_str() {
+            } else if let Some(name) = lib["name"]
+                .as_str()
+                .filter(|_| lib.get("downloads").is_none())
+            {
                 let relative = maven_path(name)?;
                 let path = path_under(&libraries, &relative)?;
                 let base_url = lib["url"]
@@ -402,7 +392,7 @@ pub fn prepare(
                 classpath.push(path.clone());
                 add_job(&mut jobs, Download { url, path, hash });
             }
-            if let Some(classifier) = lib["natives"]["windows"].as_str() {
+            if let Some(classifier) = lib["natives"][platform::OS].as_str() {
                 let classifier = classifier.replace("${arch}", "64");
                 if let Some(item) = lib["downloads"]["classifiers"].get(&classifier) {
                     let job = artifact(item, &libraries)?;
@@ -594,6 +584,46 @@ pub fn extract_zip(archive: &Path, destination: &Path, excludes: &[String]) -> R
     Ok(())
 }
 
+#[cfg(target_os = "linux")]
+fn extract_tar_gz(archive: &Path, destination: &Path) -> Result<()> {
+    fs::create_dir_all(destination)?;
+    let reader = flate2::read::GzDecoder::new(fs::File::open(archive)?);
+    let mut archive = tar::Archive::new(reader);
+    for entry in archive.entries()? {
+        let mut entry = entry?;
+        let path = entry.path()?.into_owned();
+        anyhow::ensure!(
+            !path.is_absolute()
+                && !path
+                    .components()
+                    .any(|c| matches!(c, Component::ParentDir | Component::Prefix(_))),
+            "El TAR contiene una ruta no segura"
+        );
+        if let Some(link) = entry.link_name()? {
+            anyhow::ensure!(!link.is_absolute(), "El TAR contiene un enlace absoluto");
+            let base = if entry.header().entry_type().is_symlink() {
+                path.parent().unwrap_or(Path::new(""))
+            } else {
+                Path::new("")
+            };
+            let mut depth = 0usize;
+            for component in base.join(link).components() {
+                match component {
+                    Component::Normal(_) => depth += 1,
+                    Component::CurDir => (),
+                    Component::ParentDir if depth > 0 => depth -= 1,
+                    _ => bail!("El TAR contiene un enlace fuera de su destino"),
+                }
+            }
+        }
+        anyhow::ensure!(
+            entry.unpack_in(destination)?,
+            "El TAR contiene una ruta no segura"
+        );
+    }
+    Ok(())
+}
+
 pub(crate) fn java_runtime(
     root: &Path,
     major: u64,
@@ -610,9 +640,15 @@ pub(crate) fn java_runtime(
         );
         return Ok(path);
     }
-    let base = root.join("runtimes").join(format!("java-{major}"));
+    let base = root.join("runtimes").join(if cfg!(windows) {
+        format!("java-{major}")
+    } else {
+        format!("java-{major}-linux-x64")
+    });
     let marker = base.join("runtime.json");
     if let Ok(relative) = model::read_json::<String>(&marker) {
+        #[cfg(windows)]
+        let relative = relative.replace('\\', "/");
         let java = path_under(&base, &relative)?;
         if java.is_file() {
             return Ok(java);
@@ -626,16 +662,19 @@ pub(crate) fn java_runtime(
         "Descargando Java {major} · Eclipse Temurin…"
     )))?;
     let client = net::client()?;
-    let entries: Value = client.get(format!("https://api.adoptium.net/v3/assets/latest/{major}/hotspot?architecture=x64&image_type=jre&os=windows&vendor=eclipse"))
+    let entries: Value = client.get(format!("https://api.adoptium.net/v3/assets/latest/{major}/hotspot?architecture=x64&image_type=jre&os={}&vendor=eclipse", platform::OS))
         .send()?.error_for_status()?.json()?;
     let package = &entries[0]["binary"]["package"];
     let link = package["link"].as_str().context(
-        "No hay un runtime Java disponible para esta versión; configura java.exe en Ajustes",
+        "No hay un runtime Java disponible para esta versión; configura la ruta de Java en Ajustes",
     )?;
     let expected = package["checksum"]
         .as_str()
         .context("Java no incluye una suma de verificación")?;
-    let archive = root.join("runtimes").join(format!("java-{major}.zip"));
+    let extension = if cfg!(windows) { "zip" } else { "tar.gz" };
+    let archive = root
+        .join("runtimes")
+        .join(format!("java-{major}.{extension}"));
     net::download(&client, link, &archive, None, false)?;
     let mut digest = Sha256::new();
     let mut file = fs::File::open(&archive)?;
@@ -651,13 +690,19 @@ pub(crate) fn java_runtime(
         fs::remove_file(archive)?;
         bail!("Java no pasó la verificación SHA-256. Reintenta la instalación.");
     }
+    #[cfg(windows)]
     extract_zip(&archive, &base, &[])?;
+    #[cfg(target_os = "linux")]
+    extract_tar_gz(&archive, &base)?;
     let java = fs::read_dir(&base)?
         .filter_map(Result::ok)
-        .map(|e| e.path().join("bin/java.exe"))
+        .map(|e| e.path().join("bin").join(platform::JAVA_BINARY))
         .find(|path| path.is_file())
-        .context("No se encontró java.exe en el runtime descargado")?;
-    let relative = java.strip_prefix(&base)?.to_string_lossy().to_string();
+        .context("No se encontró Java en el runtime descargado")?;
+    let relative = java
+        .strip_prefix(&base)?
+        .to_string_lossy()
+        .replace('\\', "/");
     model::write_json(&marker, &relative)?;
     fs::remove_file(archive)?;
     Ok(java)
@@ -742,7 +787,7 @@ pub fn launch(
         ("launcher_name", "Luma".into()),
         ("launcher_version", env!("CARGO_PKG_VERSION").into()),
         ("classpath", cp.clone()),
-        ("classpath_separator", ";".into()),
+        ("classpath_separator", platform::CLASSPATH_SEPARATOR.into()),
         (
             "library_directory",
             root.join("libraries").to_string_lossy().into_owned(),
@@ -861,11 +906,11 @@ pub fn launch(
     Ok(())
 }
 
-fn hide_console(command: &mut Command) {
+fn hide_console(_command: &mut Command) {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        command.creation_flags(0x08000000);
+        _command.creation_flags(0x08000000);
     }
 }
 
@@ -873,8 +918,8 @@ fn run_hook(text: &str, game: &Path) -> Result<()> {
     if text.trim().is_empty() {
         return Ok(());
     }
-    let mut command = Command::new("cmd.exe");
-    command.args(["/D", "/S", "/C", text]).current_dir(game);
+    let mut command = platform::hook_command(text);
+    command.current_dir(game);
     hide_console(&mut command);
     anyhow::ensure!(
         command.status()?.success(),
@@ -896,8 +941,11 @@ mod tests {
     #[test]
     fn evaluates_platform_and_feature_rules() {
         assert!(allows(None));
+        assert!(allows(Some(
+            &json!([{"action":"allow","os":{"name":platform::OS}}])
+        )));
         assert!(!allows(Some(
-            &json!([{"action":"allow","os":{"name":"linux"}}])
+            &json!([{"action":"allow","os":{"name":"unsupported"}}])
         )));
         assert!(allows(Some(
             &json!([{"action":"allow"},{"action":"disallow","os":{"name":"osx"}}])
@@ -1013,6 +1061,61 @@ mod tests {
         assert!(!root.join("escape.dll").exists());
     }
 
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn java_tar_preserves_execute_permission_and_rejects_escaping_links() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = fixture_dir("java-tar");
+        let archive = root.join("java.tar.gz");
+        let write_archive = |escape: bool| {
+            let gzip = flate2::write::GzEncoder::new(
+                fs::File::create(&archive).unwrap(),
+                flate2::Compression::default(),
+            );
+            let mut builder = tar::Builder::new(gzip);
+            let mut header = tar::Header::new_gnu();
+            header.set_mode(0o755);
+            header.set_size(4);
+            header.set_cksum();
+            builder
+                .append_data(&mut header, "jre/bin/java", &b"java"[..])
+                .unwrap();
+            let mut link = tar::Header::new_gnu();
+            link.set_entry_type(tar::EntryType::Symlink);
+            link.set_size(0);
+            link.set_mode(0o777);
+            link.set_link_name(if escape { "../../outside" } else { "java" })
+                .unwrap();
+            link.set_cksum();
+            builder
+                .append_data(
+                    &mut link,
+                    if escape {
+                        "jre/link"
+                    } else {
+                        "jre/bin/java-link"
+                    },
+                    std::io::empty(),
+                )
+                .unwrap();
+            builder.into_inner().unwrap().finish().unwrap();
+        };
+        write_archive(false);
+        let destination = root.join("safe");
+        extract_tar_gz(&archive, &destination).unwrap();
+        let java = destination.join("jre/bin/java");
+        assert_eq!(fs::read(&java).unwrap(), b"java");
+        assert_ne!(java.metadata().unwrap().permissions().mode() & 0o111, 0);
+        assert_eq!(
+            fs::read(destination.join("jre/bin/java-link")).unwrap(),
+            b"java"
+        );
+        write_archive(true);
+        let destination = root.join("unsafe");
+        assert!(extract_tar_gz(&archive, &destination).is_err());
+        assert!(fs::symlink_metadata(destination.join("jre/link")).is_err());
+    }
+
     #[test]
     fn complete_offline_installation_checks_hashes_natives_and_legacy_assets() {
         let root = fixture_dir("offline");
@@ -1024,7 +1127,14 @@ mod tests {
         let jar = version_dir.join("test-1.jar");
         fs::write(&jar, b"client fixture").unwrap();
         let native = libraries.join("native.jar");
-        native_zip(&native, "example.dll");
+        native_zip(
+            &native,
+            if cfg!(windows) {
+                "example.dll"
+            } else {
+                "libexample.so"
+            },
+        );
         let library = libraries.join("library.jar");
         fs::write(&library, b"library fixture").unwrap();
         let asset = root.join("asset-fixture");
@@ -1047,7 +1157,11 @@ mod tests {
                     "artifact":{"path":"test/library.jar", "url":"https://invalid.example/lib", "sha1":net::sha1_file(&library).unwrap()},
                     "classifiers":{"natives-windows":{"path":"test/native.jar", "url":"https://invalid.example/native", "sha1":net::sha1_file(&native).unwrap()}}
                 },
-                "natives":{"windows":"natives-windows"}
+                "natives":{(platform::OS):"natives-windows"}
+            }, {
+                "name":"test:native-only:1",
+                "downloads":{"classifiers":{"natives-test":{"path":"test/native.jar", "url":"https://invalid.example/native", "sha1":net::sha1_file(&native).unwrap()}}},
+                "natives":{(platform::OS):"natives-test"}
             }],
             "assetIndex":{"id":"legacy","url":"https://invalid.example/index", "sha1":net::sha1_file(&index).unwrap()}
         });
@@ -1068,7 +1182,12 @@ mod tests {
         let installation = prepare(&root, &version, &settings, true, &tx).unwrap();
         assert_eq!(installation.classpath, vec![library, jar]);
         assert_eq!(
-            fs::read(installation.natives.join("example.dll")).unwrap(),
+            fs::read(installation.natives.join(if cfg!(windows) {
+                "example.dll"
+            } else {
+                "libexample.so"
+            }))
+            .unwrap(),
             b"test native"
         );
         assert_eq!(

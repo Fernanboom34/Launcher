@@ -11,6 +11,7 @@ mod engine;
 mod model;
 mod net;
 mod oauth;
+mod platform;
 mod profiles;
 mod ui;
 

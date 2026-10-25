@@ -1,12 +1,14 @@
 use crate::{
     catalog::{self, Kind},
-    model::{self, Event, GameProfile},
+    model::{Event, GameProfile},
 };
-use anyhow::{Context, Result};
+use anyhow::Result;
 use std::{
     path::{Path, PathBuf},
     sync::{mpsc::Sender, Mutex},
 };
+#[cfg(windows)]
+use {crate::model, anyhow::Context};
 static OWNER: Mutex<Option<String>> = Mutex::new(None);
 pub fn is_open() -> bool {
     OWNER.lock().is_ok_and(|o| o.is_some())
@@ -103,6 +105,7 @@ fn open_url(
     });
     Ok(())
 }
+#[cfg(windows)]
 fn candidate(dir: &Path, name: &str, kind: Kind) -> Result<PathBuf> {
     catalog::safe_filename(name, kind)?;
     let original = Path::new(name);
@@ -358,8 +361,20 @@ fn window(
     Ok(())
 }
 #[cfg(not(windows))]
-fn window(_: &GameProfile, _: Kind, _: &Path, _: &str, _: &Sender<Event>, _: bool) -> Result<()> {
-    anyhow::bail!("El navegador integrado requiere Windows")
+fn window(
+    _: &GameProfile,
+    kind: Kind,
+    dest: &Path,
+    url: &str,
+    tx: &Sender<Event>,
+    _: bool,
+) -> Result<()> {
+    webbrowser::open(url)?;
+    tx.send(Event::Status(format!(
+        "Web abierta en el navegador del sistema. Descarga el archivo y añádelo desde Cargar archivos → Elegir archivos… a {} ({}).",
+        crate::cleanup::display_path(dest), kind.label()
+    )))?;
+    Ok(())
 }
 
 #[cfg(all(test, windows))]
