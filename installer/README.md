@@ -1,6 +1,6 @@
 # Instalador Windows: beta para comparar
 
-`Luma.iss` utiliza Inno Setup y se distribuye para pruebas como pre-release, sin reemplazar el estable. La beta fija su payload a `v0.7.1-beta.3-windows` para que la comparacion sea reproducible; no consulta el estable 0.7.0.
+`Luma.iss` utiliza Inno Setup y se distribuye para pruebas como pre-release, sin reemplazar el estable. La beta fija su payload a `v0.8.0-beta.1-windows` para que la comparacion sea reproducible; no consulta el estable 0.7.0.
 
 La copia de archivos, UAC, accesos directos, registro y retirada de archivos de programa pasan al motor estandar de Inno Setup. El script no ejecuta PowerShell ni comandos codificados. Descarga el manifiesto de su beta y el EXE indicado, limita el manifiesto, valida version y URL exacta de GitHub y verifica SHA-256 antes de instalar. No incluye JAR ni perfiles.
 

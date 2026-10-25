@@ -1,6 +1,12 @@
 # Luma
 
-## Beta 0.7.1-beta.3-windows
+## Beta 0.8.0-beta.1-windows
+
+El selector de Minecraft muestra las versiones públicas estables y permite mostrar todas desde el desplegable. Fabric añade filtros de estables y builds, tanto al crear como al editar instancias. Inicio concentra la biblioteca; se retiran las páginas redundantes de biblioteca, versiones/descargas y actividad. Los registros del juego siguen dentro de cada instancia.
+
+La nueva página **Skins** guarda PNG de 64×64 o 64×32, permite importarlos o arrastrarlos, editar nombre/modelo/PNG, exportar y eliminar. Incluye vista previa estática con giro manual y modelos clásico/delgado. Las nueve skins predeterminadas se descargan desde los servidores de texturas de Minecraft; no se incluyen imágenes ni JAR en la distribución.
+
+Con Microsoft se puede cargar la apariencia actual, aplicar/restablecer la skin y elegir entre las capas que posee la cuenta; requiere sesión activa. Para cuentas locales, **Instalar mod y aplicar skin** descarga [CustomSkinLoader](https://modrinth.com/mod/customskinloader) y sus dependencias compatibles desde Modrinth en la instancia elegida, y configura el PNG local con copias de seguridad. Es necesario un cargador compatible; Vanilla muestra una indicación para cambiarlo desde la configuración de la instancia. La skin local se ve en ese cliente; otros jugadores no reciben automáticamente el PNG. Desactivar restaura un PNG previo si existía y conserva el mod. Ninguna operación de las pruebas cambia una cuenta Microsoft real.
 
 Esta rama integra los arreglos de interacción, el navegador en proceso separado y las descargas `blob:` de páginas HTTPS. El panel nativo de descargas permanece disponible para decisiones del navegador.
 
