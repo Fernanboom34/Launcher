@@ -4,6 +4,7 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use std::{
+    io::{BufRead, Read, Write},
     path::{Path, PathBuf},
     sync::{mpsc::Sender, Mutex},
 };
@@ -89,12 +90,12 @@ fn open_url(
         owner.is_none(),
         "Cierra el navegador de contenido anterior para cambiar de instancia o de destino"
     );
-    let dest = catalog::destination(&profile, kind, world.as_deref())?;
+    catalog::destination(&profile, kind, world.as_deref())?;
     *owner = Some(profile.id.clone());
     drop(owner);
     std::thread::spawn(move || {
         let _guard = Guard;
-        let result = window(&profile, kind, &dest, &initial, &tx, false);
+        let result = child_window(profile, kind, world, initial, &tx);
         if let Err(e) = result {
             let _ = tx.send(Event::Error(format!(
                 "No se pudo abrir el navegador: {e:#}"
@@ -102,6 +103,110 @@ fn open_url(
         }
     });
     Ok(())
+}
+#[derive(serde::Serialize, serde::Deserialize)]
+struct BrowserRequest {
+    profile: GameProfile,
+    kind: Kind,
+    world: Option<PathBuf>,
+    url: String,
+}
+fn child_window(
+    profile: GameProfile,
+    kind: Kind,
+    world: Option<PathBuf>,
+    url: String,
+    tx: &Sender<Event>,
+) -> Result<()> {
+    use std::process::{Command, Stdio};
+    let log_dir = model::root().join("browser");
+    std::fs::create_dir_all(&log_dir)?;
+    let log_path = log_dir.join("browser-latest.log");
+    let log = std::fs::File::create(&log_path)?;
+    let mut command = Command::new(std::env::current_exe()?);
+    command
+        .arg("--content-browser")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(log);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+    let mut child = command
+        .spawn()
+        .context("No se pudo iniciar el proceso del navegador")?;
+    let request = BrowserRequest {
+        profile,
+        kind,
+        world,
+        url,
+    };
+    let input = serde_json::to_vec(&request)?;
+    child
+        .stdin
+        .take()
+        .context("Sin canal para el navegador")?
+        .write_all(&input)?;
+    if let Some(output) = child.stdout.take() {
+        for line in std::io::BufReader::new(output).lines() {
+            let line = line?;
+            if let Ok((kind, message)) = serde_json::from_str::<(String, String)>(&line) {
+                let event = match kind.as_str() {
+                    "content" => Event::ContentChanged(message),
+                    "error" => Event::Error(message),
+                    _ => Event::Status(message),
+                };
+                let _ = tx.send(event);
+            }
+        }
+    }
+    let status = child.wait()?;
+    anyhow::ensure!(
+        status.success(),
+        "El navegador se cerró inesperadamente ({status}). Luma sigue abierto. Registro: {}",
+        log_path.display()
+    );
+    Ok(())
+}
+pub fn child_main() -> Result<()> {
+    let mut input = Vec::new();
+    std::io::stdin().take(1024 * 1024).read_to_end(&mut input)?;
+    let request: BrowserRequest = serde_json::from_slice(&input)?;
+    let url = url::Url::parse(&request.url)?;
+    anyhow::ensure!(
+        url.scheme() == "https"
+            && matches!(url.host_str(), Some("modrinth.com" | "www.curseforge.com")),
+        "Sitio de contenido no válido"
+    );
+    let dest = catalog::destination(&request.profile, request.kind, request.world.as_deref())?;
+    let (tx, rx) = std::sync::mpsc::channel();
+    let reporter = std::thread::spawn(move || {
+        for event in rx {
+            let pair = match event {
+                Event::Status(s) => ("status", s),
+                Event::Error(s) => ("error", s),
+                Event::ContentChanged(s) => ("content", s),
+                _ => continue,
+            };
+            if let Ok(line) = serde_json::to_string(&pair) {
+                println!("{line}");
+                let _ = std::io::stdout().flush();
+            }
+        }
+    });
+    let result = window(
+        &request.profile,
+        request.kind,
+        &dest,
+        &request.url,
+        &tx,
+        std::env::var_os("LUMA_BROWSER_PROBE").is_some(),
+    );
+    drop(tx);
+    let _ = reporter.join();
+    result
 }
 fn candidate(dir: &Path, name: &str, kind: Kind) -> Result<PathBuf> {
     catalog::safe_filename(name, kind)?;
@@ -219,7 +324,8 @@ fn window(
     let count_done = active.clone();
     let completed = Rc::new(Cell::new(false));
     let complete_flag = completed.clone();
-    let popup = view.clone();
+    let navigation = Rc::new(RefCell::new(Vec::<String>::new()));
+    let popup = navigation.clone();
     let webview = wry::WebViewBuilder::new_with_web_context(&mut context)
         .with_url(url)
         .with_background_color((22, 24, 28, 255))
@@ -227,9 +333,8 @@ fn window(
         .with_navigation_handler(|u| u.starts_with("https://") || u == "about:blank")
         .with_new_window_req_handler(move |u, _| {
             if u.starts_with("https://") {
-                if let Some(view) = popup.borrow().as_ref() {
-                    let _ = view.load_url(&u);
-                }
+                // Defer navigation until outside WebView2's COM callback.
+                popup.borrow_mut().push(u);
             }
             wry::NewWindowResponse::Deny
         })
@@ -312,12 +417,18 @@ fn window(
             ControlFlow::Wait
         };
         match event {
-            WindowEvent::MainEventsCleared
+            WindowEvent::MainEventsCleared => {
+                let next = navigation.borrow_mut().pop();
+                if let Some(url) = next {
+                    if let Some(view) = view.borrow().as_ref() {
+                        let _ = view.load_url(&url);
+                    }
+                }
                 if probe
-                    && (completed.get()
-                        || started.elapsed() > std::time::Duration::from_secs(35)) =>
-            {
-                *flow = ControlFlow::Exit
+                    && (completed.get() || started.elapsed() > std::time::Duration::from_secs(35))
+                {
+                    *flow = ControlFlow::Exit;
+                }
             }
             WindowEvent::WindowEvent {
                 event: NativeEvent::CloseRequested,
