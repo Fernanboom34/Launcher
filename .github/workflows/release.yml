@@ -16,6 +16,10 @@ on:
         description: 'Solo compilar y comprobar el prototipo Inno (sin publicar)'
         type: boolean
         default: false
+      include_installer:
+        description: 'Compilar y probar el nuevo Setup Inno antes de guardarlo'
+        type: boolean
+        default: false
 permissions:
   contents: write
 jobs:
@@ -69,6 +73,11 @@ jobs:
           cargo test --locked
           if ($LASTEXITCODE) { throw 'Las pruebas fallaron' }
           ./build.ps1
+      - name: Compilar y probar nuevo instalador
+        if: inputs.include_installer == true
+        shell: pwsh
+        run: |
+          ./scripts/test-native-installer.ps1
       - name: Guardar launcher de verificación
         uses: actions/upload-artifact@v4
         with:
@@ -78,6 +87,13 @@ jobs:
             !artifacts/Luma-Setup.exe
             artifacts/luma-release.json
             artifacts/SHA256SUMS.txt
+          retention-days: 7
+      - name: Guardar nuevo Setup verificado
+        if: inputs.include_installer == true
+        uses: actions/upload-artifact@v4
+        with:
+          name: Luma-Setup-verificacion-${{ github.run_id }}
+          path: artifacts/Luma-Setup.exe
           retention-days: 7
       - name: Publicar ejecutables y manifiesto
         if: startsWith(github.ref, 'refs/tags/v') || (inputs.publish == true && inputs.source_ref == '')
