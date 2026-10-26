@@ -1,74 +1,143 @@
-name: Publicar Luma
+name: Validar y publicar Luma 0.8.0 Release Windows y Linux
 on:
   push:
-    tags: ['v*']
+    branches: [release/0.8.0]
+    tags: ['v0.8.0']
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: stable080-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   windows:
-    # Betas are published explicitly, without the old Setup or stable updates.
-    if: ${{ github.event_name == 'push' && !contains(github.ref_name, '-') }}
     runs-on: windows-latest
+    env:
+      RUSTFLAGS: '-C target-feature=+crt-static'
+      LUMA_MICROSOFT_CLIENT_ID: ${{ secrets.LUMA_MICROSOFT_CLIENT_ID }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-      - name: Preparar Rust estable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Preparar y verificar Rust
         shell: pwsh
         run: |
           rustup update stable --no-self-update
           rustup default stable
           rustup component add rustfmt clippy
-      - name: Preparar certificado de firma opcional
-        shell: pwsh
-        env:
-          LUMA_SIGNING_PFX_BASE64: ${{ secrets.LUMA_SIGNING_PFX_BASE64 }}
-          LUMA_SIGNING_PFX_PASSWORD: ${{ secrets.LUMA_SIGNING_PFX_PASSWORD }}
-        run: |
-          if ($env:LUMA_SIGNING_PFX_BASE64) {
-            $pfxFile = Join-Path $env:RUNNER_TEMP 'luma-signing.pfx'
-            [IO.File]::WriteAllBytes($pfxFile, [Convert]::FromBase64String($env:LUMA_SIGNING_PFX_BASE64))
-            try {
-              $password = ConvertTo-SecureString $env:LUMA_SIGNING_PFX_PASSWORD -AsPlainText -Force
-              $certificate = Import-PfxCertificate -FilePath $pfxFile -CertStoreLocation Cert:\CurrentUser\My -Password $password
-              "LUMA_SIGNING_CERT_THUMBPRINT=$($certificate.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-            } finally { Remove-Item -LiteralPath $pfxFile -Force }
-          }
-      - name: Verificar y compilar
-        shell: pwsh
-        env:
-          LUMA_MICROSOFT_CLIENT_ID: ${{ secrets.LUMA_MICROSOFT_CLIENT_ID }}
-          RUSTFLAGS: '-C target-feature=+crt-static'
-        run: |
           cargo fmt --check
-          if ($LASTEXITCODE) { throw 'El formato falló' }
+          if ($LASTEXITCODE) { throw 'Formato' }
           cargo clippy --locked --all-targets -- -D warnings
-          if ($LASTEXITCODE) { throw 'Clippy falló' }
+          if ($LASTEXITCODE) { throw 'Clippy' }
           cargo test --locked
-          if ($LASTEXITCODE) { throw 'Las pruebas fallaron' }
+          if ($LASTEXITCODE) { throw 'Pruebas' }
+      - name: Compilar aplicación e instalador nativo y probar instalación
+        shell: pwsh
+        run: |
           ./build.ps1
+          ./scripts/test-native-installer.ps1
+          $env:LUMA_DATA_DIR = Join-Path $env:RUNNER_TEMP 'luma-cli-stable080'
+          ./target/release/luma-launcher.exe --list-profiles
+          if ($LASTEXITCODE) { throw 'CLI' }
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: stable-windows
-          path: artifacts/
+          name: stable080-windows
+          path: |
+            artifacts/Luma-0.8.0.exe
+            artifacts/Luma-Setup.exe
+            artifacts/luma-release.json
+            artifacts/SHA256SUMS.txt
           if-no-files-found: error
+  linux:
+    runs-on: ubuntu-22.04
+    env:
+      LUMA_MICROSOFT_CLIENT_ID: ${{ secrets.LUMA_MICROSOFT_CLIENT_ID }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Preparar herramientas y escritorio
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config binutils libx11-6 libx11-xcb1 libxcb1 libxcursor1 libxi6 libxrandr2 libxkbcommon0 libxkbcommon-x11-0 libgl1 libegl1 libwayland-client0 libwayland-cursor0 libwayland-egl1 xdg-utils xvfb
+          rustup update stable --no-self-update
+          rustup default stable
+          rustup component add rustfmt clippy
+      - name: Verificar y empaquetar
+        run: |
+          cargo fmt --check
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo test --locked --all-targets
+          bash scripts/build-linux.sh
+          python3 scripts/test-linux-package.py
+      - name: Capturas de skins y contenido con datos aislados
+        run: |
+          fixture="$RUNNER_TEMP/luma-visual-$GITHUB_RUN_ID"
+          python3 scripts/prepare-visual-fixtures.py "$fixture"
+          for page in skins instance; do
+            xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 LUMA_DATA_DIR="$fixture" LUMA_PREVIEW_PAGE="$page" LUMA_PREVIEW="$PWD/artifacts/stable080-$page.png" timeout 30s target/release/luma-launcher
+            test -s "artifacts/stable080-$page.png"
+          done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: stable080-linux
+          path: |
+            artifacts/*0.8.0*linux-x64*
+            artifacts/*0.8.0*amd64.deb
+            artifacts/luma-release-linux-x64.json
+            artifacts/SHA256SUMS-linux-x64.txt
+          if-no-files-found: error
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: stable080-visual-checks
+          path: artifacts/stable080-*.png
+          if-no-files-found: error
+  audit:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Auditoría RustSec
+        run: |
+          cargo install cargo-audit --locked --version 0.22.0
+          cargo audit --deny unsound
+  codeql:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: github/codeql-action/init@8498dc4c2b27cdd99baf0f87955b29ebbf30c78d
+        with:
+          languages: rust
+          build-mode: none
+      - uses: github/codeql-action/analyze@8498dc4c2b27cdd99baf0f87955b29ebbf30c78d
+
   publish:
-    needs: windows
+    needs: [windows, linux, audit, codeql]
     runs-on: ubuntu-22.04
     permissions:
       contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: Fernanboom34/Launcher
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
-          name: stable-windows
-          path: artifacts
-      - name: Verificar sumas y crear un release nuevo
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
+          name: stable080-windows
+          path: windows
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: stable080-linux
+          path: linux
+      - name: Verificar sumas y publicar versión estable
         run: |
           set -euo pipefail
-          version=$(jq -r .version artifacts/luma-release.json)
-          tag="v$version"
-          test "$GITHUB_REF_NAME" = "$tag"
-          (cd artifacts && sha256sum -c SHA256SUMS.txt)
-          gh release create "$tag" "artifacts/Luma-$version.exe" artifacts/Luma-Setup.exe artifacts/luma-release.json artifacts/SHA256SUMS.txt --verify-tag --title "Luma $version" --generate-notes
+          python3 -c 'from pathlib import Path; p = Path("windows/SHA256SUMS.txt"); p.write_bytes(p.read_bytes().replace(b"\r\n", b"\n"))'
+          (cd windows && sha256sum -c SHA256SUMS.txt)
+          (cd linux && sha256sum -c SHA256SUMS-linux-x64.txt)
+          assets=(windows/Luma-0.8.0.exe windows/Luma-Setup.exe windows/luma-release.json windows/SHA256SUMS.txt
+                  linux/Luma-0.8.0-linux-x64 linux/Luma-0.8.0-linux-x64.tar.gz linux/luma-launcher_0.8.0_amd64.deb linux/luma-release-linux-x64.json linux/SHA256SUMS-linux-x64.txt)
+          gh release create v0.8.0 --target "$GITHUB_SHA" --latest --title 'Luma 0.8.0 — Windows y Linux x64' --notes-file docs/RELEASE-0.8.0.md "${assets[@]}"

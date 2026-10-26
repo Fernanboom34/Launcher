@@ -13,7 +13,7 @@ jobs:
       RUSTFLAGS: '-C target-feature=+crt-static'
       LUMA_MICROSOFT_CLIENT_ID: ${{ secrets.LUMA_MICROSOFT_CLIENT_ID }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Preparar y verificar Rust
         shell: pwsh
         run: |
@@ -48,7 +48,7 @@ jobs:
     env:
       LUMA_MICROSOFT_CLIENT_ID: ${{ secrets.LUMA_MICROSOFT_CLIENT_ID }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Preparar herramientas y escritorio
         run: |
           sudo apt-get update
@@ -95,7 +95,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: Fernanboom34/Launcher
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: beta3-windows
