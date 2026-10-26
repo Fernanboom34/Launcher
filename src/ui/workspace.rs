@@ -226,7 +226,9 @@ impl Launcher {
                         .iter()
                         .enumerate()
                     {
-                        ui.selectable_value(&mut self.workspace.tab, i, *label);
+                        if pill_choice(ui, self.workspace.tab == i, label).clicked() {
+                            self.workspace.tab = i;
+                        }
                     }
                 });
             });
@@ -278,7 +280,9 @@ impl Launcher {
                 .iter()
                 .enumerate()
             {
-                ui.selectable_value(&mut self.workspace.filter, i, *label);
+                if pill_choice(ui, self.workspace.filter == i, label).clicked() {
+                    self.workspace.filter = i;
+                }
             }
             if ui.button("Refrescar").clicked() {
                 self.refresh_instance(p);
@@ -323,12 +327,13 @@ impl Launcher {
         let project_width = ((width - 200.) * 0.53).max(140.);
         let version_width = (width - project_width - 200.).max(110.);
         egui::Frame::new().fill(palette().card).stroke(Stroke::new(1.0_f32,palette().border)).corner_radius(16).inner_margin(0.).show(ui,|ui|{
-            egui::Frame::new().fill(palette().panel).inner_margin(12.).show(ui,|ui|{ui.set_width(width-24.);ui.horizontal(|ui|{
+            egui::Frame::new().fill(palette().panel).corner_radius(egui::CornerRadius{nw:15,ne:15,sw:0,se:0}).inner_margin(12.).show(ui,|ui|{ui.set_width(width-24.);ui.horizontal(|ui|{
                 let mut all=!items.is_empty() && items.iter().all(|i|self.workspace.selected_content.contains(&i.path));
                 if ui.checkbox(&mut all,"").on_hover_text("Seleccionar todos los proyectos visibles").changed(){if all{self.workspace.selected_content.extend(items.iter().map(|i|i.path.clone()));}else{self.workspace.selected_content.clear();}}
-                for (label,width) in [("Proyecto",project_width),("Versión",version_width)]{let(rect,_)=ui.allocate_exact_size(Vec2::new(width,22.),Sense::hover());ui.painter().text(rect.left_center(),egui::Align2::LEFT_CENTER,label,egui::FontId::proportional(14.),palette().muted);}
+                for (label,width) in [("Proyecto",project_width),("Versión",version_width)]{let(rect,_)=ui.allocate_exact_size(Vec2::new(width,22.),Sense::hover());ui.painter().text(rect.left_center(),egui::Align2::LEFT_CENTER,label,egui::FontId::proportional(14.),palette().text);}
                 ui.with_layout(Layout::right_to_left(Align::Center),|ui|{ui.label(RichText::new("Acciones").strong().color(palette().muted));});
             });});
+            egui::Frame::new().inner_margin(egui::Margin{left:8,right:8,top:0,bottom:8}).show(ui,|ui|{
             egui::ScrollArea::vertical().id_salt("instance_content").max_height((ui.available_height()-if selected>0{84.}else{18.}).max(120.)).show(ui,|ui|{
                 ui.spacing_mut().item_spacing.y=0.;
                 if items.is_empty(){ui.add_space(24.);ui.label("No hay proyectos en esta vista. Añade contenido a la instancia.");ui.add_space(24.);}
@@ -336,7 +341,7 @@ impl Launcher {
                     let info=self.workspace.content_info.get(&item.path).cloned().unwrap_or_else(||crate::content_meta::Info{title:item.name.clone(),..Default::default()});
                     let chosen=self.workspace.selected_content.contains(&item.path);
                     let response=ui.scope_builder(egui::UiBuilder::new().sense(Sense::click()),|ui|{
-                        egui::Frame::new().fill(if chosen{palette().hover}else{palette().card}).inner_margin(12.).show(ui,|ui|{ui.set_width(width-24.);ui.horizontal(|ui|{
+                        egui::Frame::new().fill(if chosen{palette().hover}else{Color32::TRANSPARENT}).corner_radius(8).inner_margin(egui::Margin{left:4,right:4,top:12,bottom:12}).show(ui,|ui|{ui.set_width(width-24.);ui.horizontal(|ui|{
                             let mut checked=chosen;if ui.checkbox(&mut checked,"").changed(){if checked{self.workspace.selected_content.insert(item.path.clone());}else{self.workspace.selected_content.remove(&item.path);}}
                             ui.allocate_ui_with_layout(Vec2::new(project_width,50.),Layout::left_to_right(Align::Center),|ui|{
                                 self.content_icon(ui,&info,&item.kind);
@@ -351,8 +356,9 @@ impl Launcher {
                         });});
                     }).response;
                     response.context_menu(|ui|self.content_menu(ui,p,item));
-                    let line=ui.cursor().top();ui.painter().line_segment([Pos2::new(ui.min_rect().left(),line),Pos2::new(ui.min_rect().left()+width,line)],Stroke::new(1.0_f32,palette().border));
+                    let line=response.rect.bottom();ui.painter().line_segment([Pos2::new(response.rect.left(),line),Pos2::new(response.rect.right(),line)],Stroke::new(1.0_f32,palette().border));
                 }
+            });
             });
         });
         if !self.workspace.selected_content.is_empty() {
@@ -1191,6 +1197,28 @@ fn window_editor(ui: &mut egui::Ui, r: &mut model::RuntimeOptions) {
         ui.add(egui::DragValue::new(&mut r.height).range(240..=16384));
     });
     switch_row(ui, &mut r.fullscreen, "Pantalla completa");
+}
+
+fn pill_choice(ui: &mut egui::Ui, selected: bool, label: &str) -> egui::Response {
+    ui.add(
+        egui::Button::new(RichText::new(label).color(if selected {
+            MINT
+        } else {
+            palette().muted
+        }))
+        .fill(if selected {
+            Color32::from_rgb(34, 65, 54)
+        } else {
+            Color32::TRANSPARENT
+        })
+        .stroke(if selected {
+            Stroke::new(1.0_f32, MINT.gamma_multiply(0.45))
+        } else {
+            Stroke::NONE
+        })
+        .corner_radius(20)
+        .min_size(Vec2::new(0., 30.)),
+    )
 }
 
 fn switch(ui: &mut egui::Ui, value: &mut bool) -> egui::Response {
