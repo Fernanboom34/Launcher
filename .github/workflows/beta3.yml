@@ -1,0 +1,129 @@
+name: Validar y publicar beta 3 Windows y Linux
+on:
+  push:
+    branches: ['release/0.8.0-beta.3']
+permissions:
+  contents: read
+concurrency:
+  group: beta3-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  windows:
+    runs-on: windows-latest
+    env:
+      RUSTFLAGS: '-C target-feature=+crt-static'
+      LUMA_MICROSOFT_CLIENT_ID: ${{ secrets.LUMA_MICROSOFT_CLIENT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: beta3-windows-${{ hashFiles('Cargo.lock') }}
+      - name: Preparar y verificar Rust
+        shell: pwsh
+        run: |
+          rustup update stable --no-self-update
+          rustup default stable
+          rustup component add rustfmt clippy
+          cargo fmt --check
+          if ($LASTEXITCODE) { throw 'Formato' }
+          cargo clippy --locked --all-targets -- -D warnings
+          if ($LASTEXITCODE) { throw 'Clippy' }
+          cargo test --locked
+          if ($LASTEXITCODE) { throw 'Pruebas' }
+      - name: Compilar aplicación e instalador nativo y probar instalación
+        shell: pwsh
+        run: |
+          ./build.ps1
+          ./scripts/test-native-installer.ps1
+          $env:LUMA_DATA_DIR = Join-Path $env:RUNNER_TEMP 'luma-cli-beta3'
+          ./target/release/luma-launcher.exe --list-profiles
+          if ($LASTEXITCODE) { throw 'CLI' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: beta3-windows
+          path: |
+            artifacts/Luma-0.8.0-beta.3.exe
+            artifacts/Luma-Setup.exe
+            artifacts/luma-release.json
+            artifacts/SHA256SUMS.txt
+          if-no-files-found: error
+  linux:
+    runs-on: ubuntu-22.04
+    env:
+      LUMA_MICROSOFT_CLIENT_ID: ${{ secrets.LUMA_MICROSOFT_CLIENT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Preparar herramientas y escritorio
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config binutils libx11-6 libx11-xcb1 libxcb1 libxcursor1 libxi6 libxrandr2 libxkbcommon0 libxkbcommon-x11-0 libgl1 libegl1 libwayland-client0 libwayland-cursor0 libwayland-egl1 xdg-utils xvfb
+          rustup update stable --no-self-update
+          rustup default stable
+          rustup component add rustfmt clippy
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: beta3-linux-${{ hashFiles('Cargo.lock') }}
+      - name: Verificar y empaquetar
+        run: |
+          cargo fmt --check
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo test --locked --all-targets
+          bash scripts/build-linux.sh
+          python3 scripts/test-linux-package.py
+      - name: Capturas de skins y contenido con datos aislados
+        run: |
+          fixture="$RUNNER_TEMP/luma-visual-$GITHUB_RUN_ID"
+          python3 scripts/prepare-visual-fixtures.py "$fixture"
+          for page in skins instance; do
+            xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 LUMA_DATA_DIR="$fixture" LUMA_PREVIEW_PAGE="$page" LUMA_PREVIEW="$PWD/artifacts/beta3-$page.png" timeout 30s target/release/luma-launcher
+            test -s "artifacts/beta3-$page.png"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: beta3-linux
+          path: |
+            artifacts/*beta.3*linux-x64*
+            artifacts/*beta.3*amd64.deb
+            artifacts/luma-release-linux-x64.json
+            artifacts/SHA256SUMS-linux-x64.txt
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: beta3-visual-checks
+          path: artifacts/beta3-*.png
+          if-no-files-found: error
+  publish:
+    needs: [windows, linux]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: Fernanboom34/Launcher
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: beta3-windows
+          path: windows
+      - uses: actions/download-artifact@v4
+        with:
+          name: beta3-linux
+          path: linux
+      - name: Verificar sumas y publicar únicamente como beta
+        run: |
+          set -euo pipefail
+          (cd windows && sha256sum -c SHA256SUMS.txt)
+          (cd linux && sha256sum -c SHA256SUMS-linux-x64.txt)
+          gh release create v0.8.0-beta.3 --target "$GITHUB_SHA" --prerelease --latest=false --title 'Luma 0.8.0-beta.3 — Windows y Linux x64' --notes-file docs/BETA3.md \
+            windows/Luma-0.8.0-beta.3.exe windows/Luma-Setup.exe windows/luma-release.json windows/SHA256SUMS.txt \
+            linux/Luma-0.8.0-beta.3-linux-x64 linux/Luma-0.8.0-beta.3-linux-x64.tar.gz linux/luma-launcher_0.8.0-beta.3_amd64.deb linux/luma-release-linux-x64.json linux/SHA256SUMS-linux-x64.txt
