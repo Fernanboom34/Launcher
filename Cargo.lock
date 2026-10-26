@@ -2075,7 +2075,7 @@ name = "luma-launcher"
 version = "0.8.0-rc.1"
 dependencies = [
  "anyhow",
- "base64 0.22.1",
+ "base64 0.23.1",
  "directories",
  "ed25519-dalek",
  "eframe",
