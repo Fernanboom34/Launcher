@@ -8,6 +8,7 @@ mod cleanup;
 mod content;
 mod distribution;
 mod engine;
+mod game_process;
 #[cfg(windows)]
 mod maintenance;
 mod model;
@@ -117,8 +118,8 @@ fn headless(args: &[String]) -> anyhow::Result<()> {
         while let Ok(event) = rx.recv() {
             match event {
                 model::Event::Status(text) => println!("{text}"),
-                model::Event::GameStarted => println!("Minecraft iniciado con perfil local"),
-                model::Event::GameExited(code) => println!("Minecraft terminó: {code:?}"),
+                model::Event::GameStarted(_) => println!("Minecraft iniciado con perfil local"),
+                model::Event::GameExited(_, code) => println!("Minecraft terminó: {code:?}"),
                 model::Event::Progress(n, total) if n.is_multiple_of(200) || n == total => {
                     println!("{n}/{total}")
                 }

@@ -753,8 +753,8 @@ pub fn cli(args: &[String]) -> Result<()> {
                 Event::Progress(n, total) if n.is_multiple_of(500) || n == total => {
                     println!("{n}/{total}")
                 }
-                Event::GameStarted => println!("Minecraft iniciado"),
-                Event::GameExited(code) => println!("Minecraft terminó: {code:?}"),
+                Event::GameStarted(_) => println!("Minecraft iniciado"),
+                Event::GameExited(_, code) => println!("Minecraft terminó: {code:?}"),
                 _ => (),
             }
         }

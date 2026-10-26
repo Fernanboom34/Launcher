@@ -139,11 +139,14 @@ impl Launcher {
                                     );
                                     ui.label(
                                         RichText::new(if self.game_running {
-                                            "Una instancia en ejecución"
+                                            format!(
+                                                "{} instancia(s) en ejecución",
+                                                self.running_games.len()
+                                            )
                                         } else if self.busy {
-                                            "Preparando instancia…"
+                                            "Preparando instancia…".to_owned()
                                         } else {
-                                            "Ninguna instancia en ejecución"
+                                            "Ninguna instancia en ejecución".to_owned()
                                         })
                                         .size(12.)
                                         .color(palette().muted),
@@ -272,7 +275,7 @@ impl Launcher {
                             ui.label(RichText::new(format!("{} {}",profile.loader.label(),profile.minecraft)).size(11.).color(palette().muted));
                         });
                     });
-                    if ui.add_enabled(!self.busy,primary("Jugar").min_size(Vec2::new(ui.available_width(),36.))).clicked() {self.play_instance(&profile);}
+                    if ui.add_enabled(!self.busy || self.is_running(&profile),primary(self.play_label(&profile)).min_size(Vec2::new(ui.available_width(),36.))).clicked() {self.play_instance(&profile);}
                     ui.horizontal(|ui| {
                         if ui.add_enabled(profile.loader!=Loader::Vanilla,egui::Button::new("Mods").min_size(Vec2::new(92.,32.))).clicked() {self.instance_folder(&profile,true);}
                         if ui.add(egui::Button::new("Carpeta").min_size(Vec2::new(92.,32.))).clicked() {self.instance_folder(&profile,false);}
@@ -594,7 +597,13 @@ impl Launcher {
                             .color(palette().muted),
                     );
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if ui.add_enabled(!self.busy, primary("Jugar")).clicked() {
+                        if ui
+                            .add_enabled(
+                                !self.busy || self.is_running(p),
+                                primary(self.play_label(p)),
+                            )
+                            .clicked()
+                        {
                             self.play_instance(p);
                         }
                         ui.menu_button("···", |ui| self.instance_menu(ui, p));
@@ -773,7 +782,12 @@ impl Launcher {
     }
 
     fn play_control(&self, ui: &mut egui::Ui, rect: Rect, id: &str, with_label: bool) -> bool {
-        let enabled = !self.busy;
+        let running = self
+            .installations
+            .iter()
+            .find(|p| p.id == id)
+            .is_some_and(|p| self.is_running(p));
+        let enabled = !self.busy || running;
         let response = ui.interact(
             rect,
             ui.id().with(("play", id, with_label)),
@@ -783,7 +797,6 @@ impl Launcher {
                 Sense::hover()
             },
         );
-        let running = self.running_installation.as_deref() == Some(id);
         ui.painter().rect_filled(
             rect,
             8.,
@@ -803,25 +816,21 @@ impl Launcher {
         art::glyph(
             ui.painter(),
             icon,
-            if running {
-                Glyph::Activity
-            } else {
-                Glyph::Play
-            },
+            if running { Glyph::Stop } else { Glyph::Play },
             Color32::from_rgb(18, 30, 24),
         );
         if with_label {
             ui.painter().text(
                 rect.center() + Vec2::new(11., 0.),
                 egui::Align2::CENTER_CENTER,
-                if running { "Jugando" } else { "Jugar" },
+                if running { "Detener" } else { "Jugar" },
                 FontId::proportional(13.),
                 Color32::from_rgb(18, 30, 24),
             );
         }
         response
             .on_hover_text(if running {
-                "Esta instancia está en ejecución"
+                "Detener esta instancia"
             } else {
                 "Jugar"
             })
@@ -882,7 +891,10 @@ impl Launcher {
             ui.close_menu();
         }
         if ui
-            .add_enabled(!self.busy, egui::Button::new("Eliminar de la biblioteca"))
+            .add_enabled(
+                !self.busy && !self.is_running(profile),
+                egui::Button::new("Eliminar de la biblioteca"),
+            )
             .clicked()
         {
             self.workspace.remove_files = false;
@@ -890,7 +902,10 @@ impl Launcher {
             ui.close_menu();
         }
         if ui
-            .add_enabled(!self.busy, egui::Button::new("Eliminar completamente…"))
+            .add_enabled(
+                !self.busy && !self.is_running(profile),
+                egui::Button::new("Eliminar completamente…"),
+            )
             .clicked()
         {
             self.workspace.remove_files = true;
@@ -899,7 +914,10 @@ impl Launcher {
         }
         ui.separator();
         if ui
-            .add_enabled(!self.busy, egui::Button::new("Jugar"))
+            .add_enabled(
+                !self.busy || self.is_running(profile),
+                egui::Button::new(self.play_label(profile)),
+            )
             .clicked()
         {
             ui.close_menu();
@@ -954,9 +972,27 @@ impl Launcher {
         self.save_settings();
     }
     pub(super) fn play_instance(&mut self, profile: &GameProfile) {
+        if self.is_running(profile) {
+            self.workspace.pending_world = None;
+            match crate::game_process::stop(&profile.game_dir) {
+                Ok(_) => self.status = format!("Deteniendo {}…", profile.name),
+                Err(e) => self.error = Some(e.to_string()),
+            }
+            return;
+        }
         if !self.busy {
             self.select_instance(profile);
             self.run(true);
+        }
+    }
+    pub(super) fn is_running(&self, p: &GameProfile) -> bool {
+        self.running_games.contains_key(&p.game_dir)
+    }
+    pub(super) fn play_label(&self, p: &GameProfile) -> &'static str {
+        if self.is_running(p) {
+            "■ Detener"
+        } else {
+            "▶ Jugar"
         }
     }
     pub(super) fn instance_folder(&mut self, profile: &GameProfile, mods: bool) {

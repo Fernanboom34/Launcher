@@ -74,6 +74,10 @@ impl Launcher {
             .and_then(|(_, world)| world.clone())
     }
     pub(super) fn play_recent(&mut self, p: &GameProfile) {
+        if self.is_running(p) {
+            self.play_instance(p);
+            return;
+        }
         let version = std::fs::read(
             p.storage_dir
                 .join("versions")
@@ -149,7 +153,13 @@ impl Launcher {
                 {
                     self.workspace.tab = 4;
                 }
-                if ui.add_enabled(!self.busy, primary("▶ Jugar")).clicked() {
+                if ui
+                    .add_enabled(
+                        !self.busy || self.is_running(&p),
+                        primary(self.play_label(&p)),
+                    )
+                    .clicked()
+                {
                     self.play_instance(&p);
                 }
             });
@@ -392,7 +402,13 @@ impl Launcher {
                                 ui.label(RichText::new(&world.mode).color(palette().muted));
                             });
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                if ui.add_enabled(!self.busy, primary("▶ Jugar")).clicked() {
+                                if ui
+                                    .add_enabled(
+                                        !self.busy || self.is_running(p),
+                                        primary(self.play_label(p)),
+                                    )
+                                    .clicked()
+                                {
                                     self.workspace.pending_world = Some(world.folder.clone());
                                     self.play_instance(p);
                                 }

@@ -3,10 +3,10 @@ use super::*;
 #[derive(Clone, Copy)]
 pub(super) enum Glyph {
     Play,
+    Stop,
     Skin,
     Image,
     Settings,
-    Activity,
     Plus,
     Close,
     Star,
@@ -21,6 +21,9 @@ pub(super) fn glyph(p: &egui::Painter, rect: Rect, icon: Glyph, color: Color32) 
     let pt = |x: f32, y: f32| c + Vec2::new(x * r, y * r);
     let line = |a: (f32, f32), b: (f32, f32)| p.line_segment([pt(a.0, a.1), pt(b.0, b.1)], s);
     match icon {
+        Glyph::Stop => {
+            p.rect_filled(Rect::from_center_size(c, Vec2::splat(r * 1.3)), 1., color);
+        }
         Glyph::Play => {
             p.add(egui::Shape::convex_polygon(
                 vec![pt(-0.55, -0.85), pt(0.85, 0.), pt(-0.55, 0.85)],
@@ -65,13 +68,6 @@ pub(super) fn glyph(p: &egui::Painter, rect: Rect, icon: Glyph, color: Color32) 
                 let v = Vec2::angled(a);
                 p.line_segment([c + v * r * 0.65, c + v * r], s);
             }
-        }
-        Glyph::Activity => {
-            line((-1., 0.6), (-0.55, 0.6));
-            line((-0.55, 0.6), (-0.15, -0.85));
-            line((-0.15, -0.85), (0.25, 0.85));
-            line((0.25, 0.85), (0.65, -0.15));
-            line((0.65, -0.15), (1., -0.15));
         }
         Glyph::Plus => {
             line((-0.8, 0.), (0.8, 0.));

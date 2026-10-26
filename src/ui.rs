@@ -69,13 +69,13 @@ pub struct Launcher {
     next_profile_scan: Instant,
     library: library::LibraryState,
     pending_launch: Option<String>,
-    running_installation: Option<String>,
+    launch_generation: u64,
+    running_games: std::collections::HashMap<PathBuf, (String, Instant)>,
     preview_started: Instant,
     preview_requested: bool,
     workspace: workspace::Workspace,
     catalog: catalog_ui::State,
     sessions: std::collections::HashMap<String, Session>,
-    game_started: Option<Instant>,
     update_release: Option<crate::distribution::Release>,
     update_staged: Option<PathBuf>,
     skins: skin_ui::State,
@@ -192,13 +192,13 @@ impl Launcher {
             next_profile_scan: Instant::now() + Duration::from_secs(10),
             library: library::LibraryState::default(),
             pending_launch: None,
-            running_installation: None,
+            launch_generation: 0,
+            running_games: Default::default(),
             preview_started: Instant::now(),
             preview_requested: false,
             workspace: Default::default(),
             catalog: Default::default(),
             sessions: Default::default(),
-            game_started: None,
             update_release: None,
             update_staged: None,
             skins: Default::default(),
@@ -421,24 +421,49 @@ impl Launcher {
         }
         settings.game_directory = installation.map(|p| p.game_dir);
         settings.quick_world = self.workspace.pending_world.take();
-        self.work(move |tx| {
-            let installation = engine::prepare(&root, &version, &settings, offline, &tx)?;
-            if let Some((profile, token)) = identity {
-                engine::launch(
-                    &root,
-                    &version,
-                    &settings,
-                    installation,
-                    &profile,
-                    &token,
-                    &tx,
-                )?;
-            } else {
-                tx.send(Event::Status(
-                    "Instalación completa · ya puedes jugar offline".into(),
-                ))?;
+        let launch_id = self
+            .pending_launch
+            .clone()
+            .unwrap_or_else(|| version.id.clone());
+        self.launch_generation += 1;
+        let generation = self.launch_generation;
+        if play {
+            self.pending_launch = Some(launch_id.clone());
+        }
+        self.busy = true;
+        self.error = None;
+        self.progress = None;
+        let tx = self.tx.clone();
+        std::thread::spawn(move || {
+            let result = (|| -> anyhow::Result<()> {
+                let installation = engine::prepare(&root, &version, &settings, offline, &tx)?;
+                if let Some((profile, token)) = identity {
+                    engine::launch(
+                        &root,
+                        &version,
+                        &settings,
+                        installation,
+                        &profile,
+                        &token,
+                        &tx,
+                    )?;
+                } else {
+                    tx.send(Event::Status(
+                        "Instalación completa · ya puedes jugar offline".into(),
+                    ))?;
+                }
+                Ok(())
+            })();
+            if let Err(error) = result {
+                let _ = tx.send(if play {
+                    Event::LaunchFailed(generation, format!("{error:#}"))
+                } else {
+                    Event::Error(format!("{error:#}"))
+                });
             }
-            Ok(())
+            if !play {
+                let _ = tx.send(Event::Done);
+            }
         });
     }
 
@@ -567,46 +592,61 @@ impl Launcher {
                         self.loader_query = Some((loader, minecraft));
                     }
                 }
-                Event::GameStarted => {
-                    self.game_started = Some(Instant::now());
-                    self.running_installation = self.pending_launch.clone();
-                    if let Some(id) = &self.running_installation {
-                        self.settings
-                            .instance_styles
-                            .entry(id.clone())
-                            .or_default()
-                            .last_played = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_secs();
-                        self.save_settings();
-                    }
+                Event::GameStarted(path) => {
+                    let id = self
+                        .pending_launch
+                        .take()
+                        .or_else(|| {
+                            self.installations
+                                .iter()
+                                .find(|p| p.game_dir == path)
+                                .map(|p| p.id.clone())
+                        })
+                        .unwrap_or_default();
+                    self.running_games
+                        .insert(path, (id.clone(), Instant::now()));
+                    self.settings
+                        .instance_styles
+                        .entry(id)
+                        .or_default()
+                        .last_played = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs();
+                    self.save_settings();
                     self.game_running = true;
-                    self.status = "Minecraft está en ejecución. ¡Disfruta tu mundo!".into();
+                    self.busy = false;
                     self.progress = None;
+                    self.status = "Minecraft está en ejecución. Puedes seguir usando Luma.".into();
                 }
-                Event::GameExited(code) => {
-                    if let (Some(start), Some(id)) =
-                        (self.game_started.take(), self.running_installation.as_ref())
-                    {
+                Event::GameExited(path, code) => {
+                    if let Some((id, start)) = self.running_games.remove(&path) {
                         self.settings
                             .instance_styles
-                            .entry(id.clone())
+                            .entry(id)
                             .or_default()
                             .play_seconds += start.elapsed().as_secs();
                         self.save_settings();
                     }
-                    self.running_installation = None;
-                    self.game_running = false;
+                    self.game_running = !self.running_games.is_empty();
                     self.status = format!(
                         "Minecraft se cerró · código {}",
                         code.map(|c| c.to_string())
-                            .unwrap_or_else(|| "desconocido".into())
+                            .unwrap_or_else(|| "detenido".into())
                     );
                     self.activity.push(self.status.clone());
                     if code != Some(0) {
-                        self.error = Some("Minecraft terminó con un error. Abre el registro del juego desde Actividad para revisar la causa.".into());
+                        self.status =
+                            "Instancia finalizada. Puedes consultar sus Registros.".into();
                     }
+                }
+                Event::LaunchFailed(generation, error) => {
+                    if self.pending_launch.is_some() && self.launch_generation == generation {
+                        self.pending_launch = None;
+                        self.busy = false;
+                        self.progress = None;
+                    }
+                    self.error = Some(error);
                 }
                 Event::Error(error) => {
                     self.workspace.deleting_instance = false;
@@ -738,9 +778,14 @@ impl eframe::App for Launcher {
             && Instant::now() >= self.next_profile_scan
             && std::env::var_os("LUMA_PREVIEW").is_none()
         {
-            let previous_error = self.error.clone();
-            self.scan_profiles(None);
-            self.error = previous_error;
+            self.next_profile_scan = Instant::now() + Duration::from_secs(10);
+            let root = self.root.clone();
+            let tx = self.tx.clone();
+            std::thread::spawn(move || {
+                if let Ok(profiles) = profiles::discover(&root, None) {
+                    let _ = tx.send(Event::Profiles(profiles));
+                }
+            });
         }
         self.drive_loader_query(ctx);
         self.apply_appearance(ctx);
