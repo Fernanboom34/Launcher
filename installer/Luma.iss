@@ -6,6 +6,7 @@
 #endif
 
 [Setup]
+SetupIconFile=../assets/luma-moon.ico
 AppId={{41EDDB92-F249-4516-9214-32958CA71088}
 AppName=Luma Launcher
 AppVersion={#SetupVersion}

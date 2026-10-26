@@ -29,7 +29,7 @@ mod theme;
 mod workspace;
 use theme::palette;
 
-const MINT: Color32 = Color32::from_rgb(68, 221, 139);
+const MINT: Color32 = Color32::from_rgb(126, 228, 182);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Page {
@@ -802,6 +802,47 @@ impl eframe::App for Launcher {
             }
             ctx.request_repaint();
         }
+        if !self.settings.appearance.decorations {
+            let rect = ctx.screen_rect();
+            for (name, rect, direction) in [
+                (
+                    "resize-left",
+                    Rect::from_min_size(rect.min, Vec2::new(5., rect.height())),
+                    egui::ResizeDirection::West,
+                ),
+                (
+                    "resize-right",
+                    Rect::from_min_size(
+                        Pos2::new(rect.right() - 5., rect.top()),
+                        Vec2::new(5., rect.height()),
+                    ),
+                    egui::ResizeDirection::East,
+                ),
+                (
+                    "resize-top",
+                    Rect::from_min_size(rect.min, Vec2::new(rect.width(), 5.)),
+                    egui::ResizeDirection::North,
+                ),
+                (
+                    "resize-bottom",
+                    Rect::from_min_size(
+                        Pos2::new(rect.left(), rect.bottom() - 5.),
+                        Vec2::new(rect.width(), 5.),
+                    ),
+                    egui::ResizeDirection::South,
+                ),
+            ] {
+                egui::Area::new(egui::Id::new(name))
+                    .order(egui::Order::Foreground)
+                    .fixed_pos(rect.min)
+                    .show(ctx, |ui| {
+                        let (_, response) = ui.allocate_exact_size(rect.size(), Sense::drag());
+                        if response.drag_started() {
+                            ctx.send_viewport_cmd(egui::ViewportCommand::BeginResize(direction));
+                        }
+                    });
+            }
+        }
         self.events();
         if self.workspace.deleting_instance && ctx.input(|i| i.viewport().close_requested()) {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
@@ -941,7 +982,7 @@ impl eframe::App for Launcher {
                     );
                 });
         }
-        loss::show(ctx, self.game_running);
+        loss::show(ctx);
         self.instance_windows(ctx);
         self.workspace_windows(ctx);
         self.catalog_window(ctx);
@@ -996,6 +1037,10 @@ fn primary(label: &str) -> egui::Button<'_> {
             .strong()
             .color(Color32::from_rgb(18, 30, 24)),
     )
-    .fill(MINT)
+    .fill(if label.contains("Detener") {
+        Color32::from_rgb(235, 75, 90)
+    } else {
+        MINT
+    })
     .corner_radius(9.0)
 }

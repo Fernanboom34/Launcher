@@ -476,7 +476,7 @@ pub fn install(
                 safe_filename(&old.filename, kind)?;
                 let old_path = dest.join(&old.filename);
                 if old_path.is_file() {
-                    crate::content::archive(&profile.game_dir, &old_path)?;
+                    crate::content::remove_permanently(&profile.game_dir, &old_path)?;
                 }
             }
             let target = dest.join(&file.filename);
