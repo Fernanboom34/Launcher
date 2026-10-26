@@ -1,6 +1,8 @@
 # Estado para retomar Luma
 
-## En curso: beta.2, skins/modelo, contenido, ajustes y procesos (25/10)
+## Cierre: beta.2, skins/modelo, contenido, ajustes y procesos (25/10)
+
+- **Publicada y verificada públicamente** https://github.com/Fernanboom34/Launcher/releases/tag/v0.8.0-beta.2-windows . Tagc9129b1, código3270fb2; diferencia posterior solo CONTINUAR. Cuatro assets descargados SIN autenticación y hashes iguales a CI: app, Setup NUEVO Inno, manifiesto y SHA256SUMS. Prerelease=true/draft=false, latest estable siguev0.7.0. EXE MSVC final abierto con datos aislados, tabla y modal borrar revisados, ExitCode0. Main local/remoto1057f3a intacta.
 
 - Petición activa: corregir skin y giro, tabla Contenido tipo Modrinth con selección y acciones masivas SIN compartir; ajustes existentes en modal desde engrane sin pestaña; Jugar/Detener y UI utilizable mientras juega; confirmaciones distintas para quitar biblioteca/conservar datos y borrar permanentemente.
 - Ramas apiladas desde beta.1: fix/skin-model-and-rotation 49bdc5a; fix/game-process-lifecycle 25ddf2e; ui/instance-content-table e123d73; ui/instance-modal-dialogs f08f365 + pulido visual en curso. Main1057f3a intacta; Linux aparte; publicar solo prerelease.
@@ -11,7 +13,7 @@
 - Pruebas GNU: 48 main +10 Setup PASAN,7ignoradas; Clippy all-targets PASA antes del pulido final. QA framebuffer en artifacts/review-instance, review-instance-settings, review-delete, review-detach, review-skins.png. Solo fixture artifacts/review-instance, nunca borrado real. Revisadas las cinco; ajuste ancho de Personalizar y encabezados en curso. Helpers LUMA_PREVIEW_RUNNING/SELECT_ALL solo al tener LUMA_PREVIEW.
 - Rama release/0.8.0-beta.2-windows integra ui/instance-layout-polish 3270fb2 (encabezados alineados y Personalizar sin corte). **CI final 40273158291 SUCCESS** sobre 3270fb2: formato, Clippy,48 main+10 Setup,7ignoradas, MSVC y ciclo Inno instalar/desinstalar con datos desechables intactos. Build anterior40273030800 no distribuir. Artefactos finales en artifacts/beta8-2; ZIPs/digests/checksums/manifiesto/marcador Inno verificados. App14.076.416bytes SHA2564793b3a829bbe715c5a30a3ac403693ffbac192c1f974fd9f35c327c04a2d224; Setup2.099.396bytes SHA256ba75fe1971747c1ddb0335b8a2c07e3f703167e3f632129dfcb61ce12728c58c. Pendiente arrancar EXE MSVC final, tag+publicar prerelease cuatro assets y comprobar descargas públicas. No afirmar Defender solucionado.
 - Limpieza: cargo clean retiró1,7GiB de compilados; no quedó target. QA final GNU table/settings/running aprobada; Stop visible y demás controles habilitados. CONTINUAR registra las limitaciones y ramas.
-- **Nueva petición vigente de apagado:** usuario volvió a pedir apagar la PC al terminar esta sesión. Avisar, guardar este registro y cambios, completar verificaciones/publicación, programar apagado sin /f y con plazo para guardar. La solicitud anterior ya usada no invalida esta nueva. No enviar muestras a Microsoft ni tocar Defender.
+- **Apagado solicitado nuevamente por el usuario:** avisado al cierre. Tras verificar descargas y subir este registro, ejecutar helper oculto que espera60s y solicita shutdown /s /t0 SIN /f. No usar /t60 porque Windows implica /f con timeout>0. Si Windows encuentra trabajo sin guardar puede bloquear el apagado. Esta autorización se consume en esta sesión; no repetir mañana. No enviar muestras a Microsoft ni tocar Defender.
 
 ## Cierre: 0.8.0-beta.1-windows publicada (25/10; prevalece sobre el historial)
 
