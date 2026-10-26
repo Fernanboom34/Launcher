@@ -6,6 +6,7 @@ pub(super) struct Workspace {
     pub settings_tab: usize,
     pub(super) settings_open: bool,
     pub global_tab: usize,
+    empty_mascot: Option<egui::TextureHandle>,
     pub pending_world: Option<String>,
     pub import_open: bool,
     pub remove: Option<String>,
@@ -322,6 +323,10 @@ impl Launcher {
         self.workspace
             .selected_content
             .retain(|path| items.iter().any(|i| i.path == *path));
+        if items.is_empty() {
+            self.empty_content(ui, self.workspace.items.is_empty());
+            return;
+        }
         let selected = self.workspace.selected_content.len();
         let width = ui.available_width();
         let project_width = ((width - 200.) * 0.53).max(140.);
@@ -405,6 +410,75 @@ impl Launcher {
                     });
                 });
         }
+    }
+    fn empty_content(&mut self, ui: &mut egui::Ui, empty: bool) {
+        let english = self.settings.language == "en-US";
+        let message = match (empty, english) {
+            (true, true) => "You haven't added any content to this instance yet.",
+            (true, false) => "Todavía no has agregado contenido a esta instancia.",
+            (false, true) => "No content matches your search or filters.",
+            (false, false) => "No hay contenido que coincida con tu búsqueda o filtros.",
+        };
+        let height = ui.available_height().max(240.);
+        ui.allocate_ui_with_layout(
+            Vec2::new(ui.available_width(), height),
+            Layout::top_down(Align::Center),
+            |ui| {
+                ui.add_space(((height - 250.) / 2.).max(12.));
+                if empty {
+                    if self.workspace.empty_mascot.is_none() {
+                        if let Ok(image) = image::load_from_memory(include_bytes!(
+                            "../../assets/empty-content.jpg"
+                        )) {
+                            let image = image.to_rgba8();
+                            self.workspace.empty_mascot = Some(ui.ctx().load_texture(
+                                "empty-content-mascot",
+                                egui::ColorImage::from_rgba_unmultiplied(
+                                    [image.width() as usize, image.height() as usize],
+                                    image.as_raw(),
+                                ),
+                                egui::TextureOptions::LINEAR,
+                            ));
+                        }
+                    }
+                    if let Some(texture) = &self.workspace.empty_mascot {
+                        ui.add(
+                            egui::Image::new(texture)
+                                .fit_to_exact_size(Vec2::new(129., 160.))
+                                .corner_radius(10),
+                        );
+                    }
+                    ui.add_space(14.);
+                }
+                ui.add(egui::Label::new(RichText::new(message).strong().size(18.)).wrap());
+                ui.add_space(14.);
+                if empty {
+                    if ui
+                        .add_enabled(
+                            !self.busy,
+                            primary(if english {
+                                "+ Install content"
+                            } else {
+                                "+ Instalar contenido"
+                            }),
+                        )
+                        .clicked()
+                    {
+                        self.workspace.import_open = true;
+                    }
+                } else if ui
+                    .button(if english {
+                        "Clear search and filters"
+                    } else {
+                        "Limpiar búsqueda y filtros"
+                    })
+                    .clicked()
+                {
+                    self.workspace.query.clear();
+                    self.workspace.filter = 0;
+                }
+            },
+        );
     }
     fn content_icon(&mut self, ui: &mut egui::Ui, info: &crate::content_meta::Info, kind: &str) {
         let (rect, _) = ui.allocate_exact_size(Vec2::splat(34.), Sense::hover());
@@ -823,7 +897,12 @@ impl Launcher {
         ui.add_space(12.);
         ui.horizontal_top(|ui|{ui.vertical(|ui|{ui.set_width(150.);for(i,label)in ["Apariencia","Comportamiento","Cuentas","Java y memoria","Ventana","Actualizaciones"].iter().enumerate(){ui.selectable_value(&mut self.workspace.global_tab,i,*label);}});ui.separator();
         egui::ScrollArea::vertical().id_salt("launcher_settings").show(ui,|ui|{ui.with_layout(Layout::top_down(Align::Min),|ui|{ui.set_width(ui.available_width());match self.workspace.global_tab{
-            0=>{ui.heading("Apariencia");ui.add_space(16.);ui.horizontal_wrapped(|ui|{for(i,name)in ["Oscuro","Claro","OLED","Sistema"].iter().enumerate(){let fill=match i{1=>Color32::from_gray(235),2=>Color32::BLACK,_=>Color32::from_gray(35)};egui::Frame::new().fill(fill).stroke(Stroke::new(1.0_f32,if self.settings.appearance.theme==i{MINT}else{palette().border})).corner_radius(12.).inner_margin(18.).show(ui,|ui|{ui.set_min_width(90.);ui.add_space(28.);if ui.selectable_label(self.settings.appearance.theme==i,RichText::new(*name).color(if i==1{Color32::BLACK}else{Color32::WHITE})).clicked(){self.settings.appearance.theme=i;}});}});ui.add_space(18.);switch_row(ui,&mut self.settings.appearance.advanced,"Renderizado avanzado");ui.small("Activa sombras y animaciones de la interfaz.");ui.add_space(12.);switch_row(ui,&mut self.settings.appearance.decorations,"Marco de ventana del sistema");}
+            0=>{ui.heading("Apariencia");
+                ui.label("Idioma / Language");
+                egui::ComboBox::from_id_salt("language").selected_text(if self.settings.language == "en-US" { "English (United States)" } else { "Español (México)" }).show_ui(ui, |ui| {
+                    ui.selectable_value(&mut self.settings.language, "es-MX".into(), "Español (México)");
+                    ui.selectable_value(&mut self.settings.language, "en-US".into(), "English (United States)");
+                });ui.add_space(16.);ui.horizontal_wrapped(|ui|{for(i,name)in ["Oscuro","Claro","OLED","Sistema"].iter().enumerate(){let fill=match i{1=>Color32::from_gray(235),2=>Color32::BLACK,_=>Color32::from_gray(35)};egui::Frame::new().fill(fill).stroke(Stroke::new(1.0_f32,if self.settings.appearance.theme==i{MINT}else{palette().border})).corner_radius(12.).inner_margin(18.).show(ui,|ui|{ui.set_min_width(90.);ui.add_space(28.);if ui.selectable_label(self.settings.appearance.theme==i,RichText::new(*name).color(if i==1{Color32::BLACK}else{Color32::WHITE})).clicked(){self.settings.appearance.theme=i;}});}});ui.add_space(18.);switch_row(ui,&mut self.settings.appearance.advanced,"Renderizado avanzado");ui.small("Activa sombras y animaciones de la interfaz.");ui.add_space(12.);switch_row(ui,&mut self.settings.appearance.decorations,"Marco de ventana del sistema");}
             1=>{ui.heading("Comportamiento");ui.add_space(14.);switch_row(ui,&mut self.settings.behavior.minimize,"Minimizar Luma al iniciar Minecraft");switch_row(ui,&mut self.settings.behavior.refocus,"Reenfocar Luma al cerrar Minecraft");switch_row(ui,&mut self.settings.behavior.sidebar_button,"Mostrar botón para ocultar la barra lateral");switch_row(ui,&mut self.settings.behavior.compact,"Biblioteca en modo compacto");switch_row(ui,&mut self.settings.behavior.playtime,"Mostrar tiempo de juego");if ui.button("Restaurar tarjetas ocultas de Inicio").clicked(){for s in self.settings.instance_styles.values_mut(){s.hidden_home=false;}}}
             2=>{self.account_manager(ui);ui.separator();self.legacy_settings_page(ui);}
             3=>{ui.heading("Java y memoria predeterminados");ui.label("Solo las nuevas instancias adoptan estos valores. Cada instancia conserva su configuración.");ui.add(egui::Slider::new(&mut self.settings.memory_mb,512..=32768).step_by(256.).suffix(" MB"));ui.label("Java personalizado (vacío = descarga automática)");ui.text_edit_singleline(&mut self.settings.java);ui.separator();ui.label("Argumentos Java predeterminados");ui.text_edit_multiline(&mut self.settings.runtime.jvm_args);ui.label("Variables de entorno (NOMBRE=valor por línea)");ui.text_edit_multiline(&mut self.settings.runtime.environment);}

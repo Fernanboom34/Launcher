@@ -34,6 +34,7 @@ impl Profile {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
+    pub language: String,
     pub selected: String,
     pub memory_mb: u32,
     pub client_id: String,
@@ -53,6 +54,7 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            language: "es-MX".into(),
             selected: String::new(),
             memory_mb: 4096,
             client_id: String::new(),
