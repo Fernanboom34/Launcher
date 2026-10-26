@@ -18,6 +18,8 @@ pub struct Skin {
     pub name: String,
     pub slim: bool,
     #[serde(default)]
+    pub model_explicit: bool,
+    #[serde(default)]
     pub builtin: bool,
 }
 #[derive(Default, Serialize, Deserialize)]
@@ -32,7 +34,19 @@ impl Library {
         if !file.exists() {
             return Ok(Self::default());
         }
-        model::read_json(&file)
+        let mut library: Self = model::read_json(&file)?;
+        for skin in &mut library.skins {
+            if !skin.builtin && !skin.model_explicit {
+                if let Ok(image) = texture_path(root, &skin.id)
+                    .and_then(|p| read_png(&p))
+                    .and_then(|b| decode(&b))
+                {
+                    skin.slim = detect_slim(&image);
+                    skin.model_explicit = true;
+                }
+            }
+        }
+        Ok(library)
     }
     pub fn save(&self, root: &Path) -> Result<()> {
         model::write_json(&root.join("skins/library.json"), self)
@@ -64,6 +78,7 @@ impl Library {
                 id: id.clone(),
                 name: name.chars().take(60).collect(),
                 slim,
+                model_explicit: true,
                 builtin,
             });
             self.save(root)?;
@@ -113,6 +128,7 @@ impl Library {
             .context("Skin no encontrada")?;
         skin.name = name.trim().chars().take(60).collect();
         skin.slim = slim;
+        skin.model_explicit = true;
         self.save(root)?;
         Ok(id)
     }
@@ -182,6 +198,13 @@ pub fn read_png(path: &Path) -> Result<Vec<u8>> {
     let bytes = std::fs::read(path)?;
     decode(&bytes)?;
     Ok(bytes)
+}
+pub fn detect_slim(image: &image::RgbaImage) -> bool {
+    image.dimensions() == (64, 64)
+        && (20..32).all(|y| (54..56).all(|x| image.get_pixel(x, y)[3] == 0))
+        && (52..64).all(|y| (46..48).all(|x| image.get_pixel(x, y)[3] == 0))
+        && (20..32).any(|y| (44..47).any(|x| image.get_pixel(x, y)[3] > 0))
+        && (52..64).any(|y| (36..39).any(|x| image.get_pixel(x, y)[3] > 0))
 }
 pub fn download_texture(url: &str) -> Result<Vec<u8>> {
     let mut url = url::Url::parse(url)?;
@@ -462,6 +485,43 @@ mod tests {
             .write_to(&mut file, image::ImageFormat::Png)
             .unwrap();
         file.into_inner()
+    }
+    #[test]
+    fn slim_detection_migrates_old_imports_but_keeps_an_explicit_model() {
+        let root = fixture();
+        let mut pixels = image::RgbaImage::from_pixel(64, 64, image::Rgba([20, 150, 230, 255]));
+        for y in 20..32 {
+            for x in 54..56 {
+                pixels.get_pixel_mut(x, y)[3] = 0;
+            }
+        }
+        for y in 52..64 {
+            for x in 46..48 {
+                pixels.get_pixel_mut(x, y)[3] = 0;
+            }
+        }
+        assert!(detect_slim(&pixels));
+        let mut bytes = Cursor::new(Vec::new());
+        pixels
+            .write_to(&mut bytes, image::ImageFormat::Png)
+            .unwrap();
+        let mut l = Library::default();
+        let id = l
+            .import(&root, bytes.get_ref(), "Slim", false, false)
+            .unwrap();
+        l.skins[0].model_explicit = false;
+        l.save(&root).unwrap();
+        let mut migrated = Library::load(&root).unwrap();
+        assert!(migrated.skins[0].slim);
+        assert_eq!(
+            decode(&std::fs::read(texture_path(&root, &id).unwrap()).unwrap()).unwrap(),
+            pixels
+        );
+        migrated
+            .edit(&root, &id, "Classic override", false, None)
+            .unwrap();
+        assert!(!Library::load(&root).unwrap().skins[0].slim);
+        crate::cleanup::delete_verified_directory(&root, &root.canonicalize().unwrap()).unwrap();
     }
     #[test]
     fn validates_dimensions_normalizes_legacy_and_deduplicates_imports() {

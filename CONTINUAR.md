@@ -1,5 +1,13 @@
 # Estado para retomar Luma
 
+## En curso: skins/modelo, contenido, ajustes modales y procesos (25/10, petición posterior)
+
+- Usuario reporta skin rota y giro invertido; pide tabla Contenido tipo Modrinth con selección múltiple y acciones masivas (activar/desactivar/borrar, SIN compartir); quitar pestaña Configuración y abrir opciones existentes en modal desde engrane; Jugar→Detener al ejecutar, launcher utilizable durante el juego. Añadió confirmaciones modales diferenciadas para quitar de biblioteca vs borrar instancia+datos, siguiendo captura.
+- Rama actual `fix/skin-model-and-rotation`, cambios en curso. Comparación local con Pillow en artifacts/check-reported-skin.py: PNG original Downloads/2026_10_17_light-blue-to-like-purple--duck-24406716.png, textura guardada234a6ec... y CustomSkinLoader/LocalSkin/skins/hola.png tienen RGBA EXACTAMENTE IGUALES. No corrupción de píxeles. Ambas tiras UV reservadas de brazo slim (54..56x20..32,46..48x52..64) transparentes; frentes opacos. Causa encontrada: importación fijaba modelo classic=false para todos, esta skin necesita slim=true.
+- Implementados aún sin commit: detect_slim por UV/alpha, model_explicit en Skin para respetar elección manual, migración al cargar imports antiguos sin ese campo, giro yaw con signo corregido. Test procedural de migración/modelo explícito/píxeles preparado. Cargo test skins en curso compilando dependencias GNU con debug0/incremental0 (target se había limpiado). Pillow instalado solo en artifacts/png-check para lectura/diagnóstico, no se editó imagen del usuario.
+- Próximo: terminar/verificar/commit rama skins; rama nueva para procesos administrados por instancia (Child propio, detener sin matar otros Java, eventos por instancia, liberar busy al empezar y no limpiar tareas posteriores al terminar el juego). Rama UI tabla+metadata+bulk y modales (ajustes y ambas eliminaciones). Main intacta, Linux del otro agente aparte, solo prereleases. Actualizar este registro conforme avance.
+- No volver a apagar PC ni mandar muestras a Microsoft. Autorizaciones anteriores ya conocidas.
+
 ## Cierre: 0.8.0-beta.1-windows publicada (25/10; prevalece sobre el historial)
 
 - **Publicado y verificado públicamente:** https://github.com/Fernanboom34/Launcher/releases/tag/v0.8.0-beta.1-windows . Cuatro archivos descargados de nuevo sin autenticación, hashes iguales a CI, prerelease=true/draft=false, latest estable siguev0.7.0. Tagc23cb9b; código ejecutableca94d6c. Rama actualrelease/0.8.0-beta.1-windows. Usar entregables **artifacts/beta8-final**, no artifacts/beta8 (compilación anterior a corrección legacy).

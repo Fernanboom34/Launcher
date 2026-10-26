@@ -74,7 +74,13 @@ impl Launcher {
                 .library
                 .as_mut()
                 .context("Biblioteca no disponible")?
-                .import(&self.root, &bytes, &name, false, false)
+                .import(
+                    &self.root,
+                    &bytes,
+                    &name,
+                    skins::detect_slim(&skins::decode(&bytes)?),
+                    false,
+                )
         })();
         match result {
             Ok(id) => {
@@ -171,7 +177,7 @@ impl Launcher {
                 ui.label(RichText::new(&account.name).size(23.).strong());
                 ui.label(if account.local{"Cuenta local"}else{"Cuenta de Minecraft"});
                 let (rect,response)=ui.allocate_exact_size(Vec2::new(260.,330.),Sense::drag());
-                if response.dragged(){self.skins.yaw+=ui.input(|i|i.pointer.delta().x)*0.012;}
+                if response.dragged(){self.skins.yaw-=ui.input(|i|i.pointer.delta().x)*0.012;}
                 if let Some(skin)=&current {
                     if let Some(texture)=self.skin_texture(ui.ctx(),skin){super::skin_preview::draw(ui,rect,texture,skin.slim,self.skins.yaw);}
                     ui.label(RichText::new(&skin.name).strong());
