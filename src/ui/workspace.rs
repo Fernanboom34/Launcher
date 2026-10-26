@@ -57,6 +57,13 @@ impl Launcher {
         self.workspace.editing = Some(p.clone());
         self.workspace.file_path = p.game_dir.clone();
         self.refresh_instance(p);
+        if std::env::var_os("LUMA_PREVIEW").is_some()
+            && std::env::var_os("LUMA_PREVIEW_SELECT_ALL").is_some()
+        {
+            self.workspace
+                .selected_content
+                .extend(self.workspace.items.iter().map(|i| i.path.clone()));
+        }
     }
     pub(super) fn refresh_instance(&mut self, p: &GameProfile) {
         self.workspace.items = content::contents(&p.game_dir);
@@ -208,14 +215,21 @@ impl Launcher {
         });
         ui.add_space(12.);
         ui.separator();
-        ui.horizontal(|ui| {
-            for (i, label) in ["Contenido", "Archivos", "Mundos", "Registros"]
-                .iter()
-                .enumerate()
-            {
-                ui.selectable_value(&mut self.workspace.tab, i, *label);
-            }
-        });
+        egui::Frame::new()
+            .fill(palette().panel)
+            .stroke(Stroke::new(1.0_f32, palette().border))
+            .corner_radius(24)
+            .inner_margin(5.)
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    for (i, label) in ["Contenido", "Archivos", "Mundos", "Registros"]
+                        .iter()
+                        .enumerate()
+                    {
+                        ui.selectable_value(&mut self.workspace.tab, i, *label);
+                    }
+                });
+            });
         ui.add_space(12.);
         match self.workspace.tab {
             0 => self.content_page(ui, &p),
@@ -312,8 +326,8 @@ impl Launcher {
             egui::Frame::new().fill(palette().panel).inner_margin(12.).show(ui,|ui|{ui.set_width(width-24.);ui.horizontal(|ui|{
                 let mut all=!items.is_empty() && items.iter().all(|i|self.workspace.selected_content.contains(&i.path));
                 if ui.checkbox(&mut all,"").on_hover_text("Seleccionar todos los proyectos visibles").changed(){if all{self.workspace.selected_content.extend(items.iter().map(|i|i.path.clone()));}else{self.workspace.selected_content.clear();}}
-                ui.add_sized([project_width,22.],egui::Label::new(RichText::new("Proyecto").strong().color(palette().muted)).halign(Align::Min));
-                ui.add_sized([version_width,22.],egui::Label::new(RichText::new("Versión").strong().color(palette().muted)).halign(Align::Min));
+                ui.allocate_ui_with_layout(Vec2::new(project_width,22.),Layout::left_to_right(Align::Center),|ui|{ui.label(RichText::new("Proyecto").strong().color(palette().muted));});
+                ui.allocate_ui_with_layout(Vec2::new(version_width,22.),Layout::left_to_right(Align::Center),|ui|{ui.label(RichText::new("Versión").strong().color(palette().muted));});
                 ui.with_layout(Layout::right_to_left(Align::Center),|ui|{ui.label(RichText::new("Acciones").strong().color(palette().muted));});
             });});
             egui::ScrollArea::vertical().id_salt("instance_content").max_height((ui.available_height()-if selected>0{84.}else{18.}).max(120.)).show(ui,|ui|{
@@ -770,7 +784,7 @@ impl Launcher {
         ui.horizontal_top(|ui|{ui.vertical(|ui|{ui.set_width(180.);ui.label(RichText::new("INSTANCIA").small().color(palette().muted));for(i,label)in ["General","Instalación","Java y memoria","Ventana","Comandos de inicio"].iter().enumerate(){if i==2{ui.add_space(18.);ui.label(RichText::new("JUEGO").small().color(palette().muted));}ui.add_sized([180.,36.],egui::Button::new(*label).selected(self.workspace.settings_tab==i)).clicked().then(||self.workspace.settings_tab=i);}});ui.separator();
             egui::ScrollArea::vertical().id_salt("instance_settings").show(ui,|ui|{ui.with_layout(Layout::top_down(Align::Min),|ui|{ui.set_width(ui.available_width());match self.workspace.settings_tab{
                 0=>{
-                    ui.horizontal_top(|ui|{ui.vertical(|ui|{ui.label(RichText::new("Nombre").strong());ui.add(egui::TextEdit::singleline(&mut edit.name).desired_width((ui.available_width()-120.).max(180.)));ui.label(RichText::new(crate::cleanup::display_path(&p.game_dir)).small().color(palette().muted));if ui.button("Abrir carpeta").clicked(){self.instance_folder(p,false);}});ui.vertical(|ui|{ui.label(RichText::new("Ícono").strong());let(rect,_)=ui.allocate_exact_size(Vec2::splat(92.),Sense::hover());self.paint_cover(ui,rect,p);if ui.button("Personalizar").clicked(){self.library.cover_target=Some(p.id.clone());self.workspace.settings_open=false;}});});
+                    ui.horizontal_top(|ui|{ui.vertical(|ui|{ui.label(RichText::new("Nombre").strong());ui.add(egui::TextEdit::singleline(&mut edit.name).desired_width((ui.available_width()-120.).max(180.)));ui.label(RichText::new(crate::cleanup::display_path(&p.game_dir)).small().color(palette().muted));if ui.button("Abrir carpeta").clicked(){self.instance_folder(p,false);}});ui.vertical(|ui|{ui.label(RichText::new("Ícono").strong());let(rect,_)=ui.allocate_exact_size(Vec2::splat(92.),Sense::hover());self.paint_cover(ui,rect,p);if ui.add_sized([104.,32.],egui::Button::new("Personalizar")).clicked(){self.library.cover_target=Some(p.id.clone());self.workspace.settings_open=false;}});});
                     ui.add_space(24.);ui.heading("Duplicar instancia");ui.label("Crea una copia con sus mundos, configuración y contenido.");
                     if ui.add_enabled(!self.busy&&!self.is_running(p),egui::Button::new("Duplicar")).clicked(){let root=self.root.clone();let profile=p.clone();self.work(move|tx|{tx.send(Event::Profiles(profiles::duplicate(&root,&profile)?))?;Ok(())});self.workspace.settings_open=false;self.page=Page::Home;}
                     ui.add_space(24.);ui.heading("Eliminar instancia");

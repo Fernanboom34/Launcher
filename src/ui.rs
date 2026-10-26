@@ -263,16 +263,26 @@ impl Launcher {
         }
         if matches!(
             std::env::var("LUMA_PREVIEW_PAGE").as_deref(),
-            Ok("instance" | "worlds" | "logs" | "instance-settings" | "delete" | "catalog")
+            Ok("instance"
+                | "worlds"
+                | "logs"
+                | "instance-settings"
+                | "delete"
+                | "detach"
+                | "catalog")
         ) {
             if let Some(p) = app.installations.first().cloned() {
                 app.open_instance(&p);
                 if std::env::var("LUMA_PREVIEW_PAGE").as_deref() == Ok("catalog") {
                     app.open_catalog(&p, crate::catalog::Kind::Mod, None);
                 }
-                if std::env::var("LUMA_PREVIEW_PAGE").as_deref() == Ok("delete") {
+                if matches!(
+                    std::env::var("LUMA_PREVIEW_PAGE").as_deref(),
+                    Ok("delete" | "detach")
+                ) {
                     app.workspace.remove = Some(p.id.clone());
-                    app.workspace.remove_files = true;
+                    app.workspace.remove_files =
+                        std::env::var("LUMA_PREVIEW_PAGE").as_deref() == Ok("delete");
                 }
                 app.workspace.tab = match std::env::var("LUMA_PREVIEW_PAGE").as_deref() {
                     Ok("worlds") => 2,
@@ -296,6 +306,14 @@ impl Launcher {
         }
         if let Ok(theme) = std::env::var("LUMA_PREVIEW_THEME") {
             app.settings.appearance.theme = theme.parse::<usize>().unwrap_or(0).min(3);
+        }
+        if std::env::var_os("LUMA_PREVIEW").is_some()
+            && std::env::var_os("LUMA_PREVIEW_RUNNING").is_some()
+        {
+            if let Some(p) = app.active_installation().cloned() {
+                app.running_games.insert(p.game_dir, (p.id, Instant::now()));
+                app.game_running = true;
+            }
         }
         if std::env::var_os("LUMA_PREVIEW").is_none() && std::env::var_os("LUMA_DATA_DIR").is_none()
         {

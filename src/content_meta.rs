@@ -408,7 +408,7 @@ mod tests {
         assert!(!info.author.is_empty());
         assert!(info.icon.as_ref().is_some_and(|i| i.is_file()));
         println!("{} · {} · {}", info.title, info.version, info.author);
-        
+
         load(&root, &items, false, |_| {}).unwrap();
         crate::cleanup::delete_verified_directory(&root, &root.canonicalize().unwrap()).unwrap();
     }
