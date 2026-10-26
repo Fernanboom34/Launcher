@@ -440,9 +440,11 @@ pub fn validate_archive(path: &Path) -> Result<()> {
     let mut names = std::collections::HashSet::new();
     for i in 0..zip.len() {
         let entry = zip.by_index(i)?;
-        let name = entry.name().to_owned();
+        let name = entry.name()?.into_owned();
         anyhow::ensure!(
             entry.enclosed_name().is_some()
+                && !name.starts_with('/')
+                && !name.split('/').any(|part| part == "..")
                 && !name.contains('\\')
                 && !name.contains(':')
                 && !name.chars().any(char::is_control),

@@ -326,7 +326,7 @@ impl Launcher {
         let width = ui.available_width();
         let project_width = ((width - 200.) * 0.53).max(140.);
         let version_width = (width - project_width - 200.).max(110.);
-        egui::Frame::new().fill(palette().card).stroke(Stroke::new(1.0_f32,palette().border)).corner_radius(16).inner_margin(0.).show(ui,|ui|{
+        egui::Frame::new().fill(palette().card).stroke(Stroke::new(1.0_f32,palette().border)).corner_radius(16).inner_margin(0.).show(ui,|ui|{ui.spacing_mut().item_spacing.y=0.;
             egui::Frame::new().fill(palette().panel).corner_radius(egui::CornerRadius{nw:15,ne:15,sw:0,se:0}).inner_margin(12.).show(ui,|ui|{ui.set_width(width-24.);ui.horizontal(|ui|{
                 let mut all=!items.is_empty() && items.iter().all(|i|self.workspace.selected_content.contains(&i.path));
                 if selection_box(ui,&mut all).on_hover_text("Seleccionar todos los proyectos visibles").changed(){if all{self.workspace.selected_content.extend(items.iter().map(|i|i.path.clone()));}else{self.workspace.selected_content.clear();}}
@@ -341,13 +341,13 @@ impl Launcher {
                     let info=self.workspace.content_info.get(&item.path).cloned().unwrap_or_else(||crate::content_meta::Info{title:item.name.clone(),..Default::default()});
                     let chosen=self.workspace.selected_content.contains(&item.path);
                     let response=ui.scope_builder(egui::UiBuilder::new().sense(Sense::click()),|ui|{
-                        egui::Frame::new().fill(if row % 2 == 0 {palette().card}else{palette().card.gamma_multiply(1.12)}).corner_radius(0).inner_margin(egui::Margin{left:12,right:12,top:9,bottom:9}).show(ui,|ui|{ui.set_width(width-24.);ui.horizontal(|ui|{
+                        egui::Frame::new().fill(if row % 2 == 0 {palette().card}else{palette().card.gamma_multiply(1.12)}).corner_radius(egui::CornerRadius{nw:0,ne:0,sw:if row+1==items.len(){15}else{0},se:if row+1==items.len(){15}else{0}}).inner_margin(egui::Margin{left:12,right:12,top:9,bottom:9}).show(ui,|ui|{ui.set_width(width-24.);ui.horizontal(|ui|{ui.set_height(40.);
                             let mut checked=chosen;if selection_box(ui,&mut checked).changed(){if checked{self.workspace.selected_content.insert(item.path.clone());}else{self.workspace.selected_content.remove(&item.path);}}
-                            ui.allocate_ui_with_layout(Vec2::new(project_width,50.),Layout::left_to_right(Align::Center),|ui|{
+                            ui.allocate_ui_with_layout(Vec2::new(project_width,40.),Layout::left_to_right(Align::Center),|ui|{
                                 self.content_icon(ui,&info,&item.kind);
-                                ui.vertical(|ui|{ui.set_width((project_width-60.).max(80.));ui.add(egui::Label::new(RichText::new(&info.title).strong()).truncate());ui.add(egui::Label::new(RichText::new(if info.author.is_empty(){&item.kind}else{&info.author}).small().color(palette().muted)).truncate());});
+                                ui.vertical(|ui|{ui.set_width((project_width-46.).max(80.));ui.add(egui::Label::new(RichText::new(&info.title).strong()).truncate());ui.add(egui::Label::new(RichText::new(if info.author.is_empty(){&item.kind}else{&info.author}).small().color(palette().muted)).truncate());});
                             });
-                            ui.allocate_ui_with_layout(Vec2::new(version_width,50.),Layout::top_down(Align::Min),|ui|{ui.add(egui::Label::new(RichText::new(if info.version.is_empty(){"—"}else{&info.version}).strong()).truncate());ui.add(egui::Label::new(RichText::new(&item.name).color(palette().muted)).truncate());});
+                            ui.allocate_ui_with_layout(Vec2::new(version_width,40.),Layout::top_down(Align::Min),|ui|{ui.add(egui::Label::new(RichText::new(if info.version.is_empty(){"—"}else{&info.version}).strong()).truncate());ui.add(egui::Label::new(RichText::new(&item.name).color(palette().muted)).truncate());});
                             ui.with_layout(Layout::right_to_left(Align::Center),|ui|{
                                 ui.menu_button("···",|ui|self.content_menu(ui,p,item));
                                 if ui.add_enabled(!self.busy,egui::Button::new("🗑")).on_hover_text("Quitar proyecto; se conserva en .luma/removed").clicked(){self.content_action(content::archive(&p.game_dir,&item.path),p);}
@@ -407,7 +407,7 @@ impl Launcher {
         }
     }
     fn content_icon(&mut self, ui: &mut egui::Ui, info: &crate::content_meta::Info, kind: &str) {
-        let (rect, _) = ui.allocate_exact_size(Vec2::splat(46.), Sense::hover());
+        let (rect, _) = ui.allocate_exact_size(Vec2::splat(34.), Sense::hover());
         if let Some(path) = &info.icon {
             if !self.workspace.content_textures.contains_key(path) {
                 if let Ok(image) = image::open(path) {

@@ -46,12 +46,44 @@ pub fn catalog(root: &Path, tx: &Sender<Event>) -> Result<()> {
 pub(crate) fn path_under(root: &Path, relative: &str) -> Result<PathBuf> {
     let path = Path::new(relative);
     anyhow::ensure!(
-        !relative.contains(['\\', ':'])
+        !relative.is_empty()
+            && !relative.contains(['\\', ':'])
             && !path.is_absolute()
             && path.components().all(|c| matches!(c, Component::Normal(_))),
         "Ruta de archivo no segura: {relative}"
     );
-    Ok(root.join(path))
+    let mut target = root.to_path_buf();
+    reject_link(&target)?;
+    for component in path.components() {
+        target.push(component.as_os_str());
+        reject_link(&target)?;
+    }
+    Ok(target)
+}
+
+fn reject_link(path: &Path) -> Result<()> {
+    for ancestor in path.ancestors() {
+        match fs::symlink_metadata(ancestor) {
+            Ok(meta) => {
+                anyhow::ensure!(
+                    !meta.file_type().is_symlink(),
+                    "Enlace simbólico en destino: {}",
+                    ancestor.display()
+                );
+                #[cfg(windows)]
+                {
+                    use std::os::windows::fs::MetadataExt;
+                    anyhow::ensure!(
+                        meta.file_attributes() & 0x400 == 0,
+                        "Reparse point en destino"
+                    );
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(())
 }
 
 fn allows(rules: Option<&Value>) -> bool {
@@ -554,16 +586,15 @@ pub fn prepare(
 
 pub fn extract_zip(archive: &Path, destination: &Path, excludes: &[String]) -> Result<()> {
     let mut zip = zip::ZipArchive::new(fs::File::open(archive)?)?;
+    anyhow::ensure!(zip.len() <= 65536, "Demasiadas entradas ZIP");
+    let mut total = 0u64;
     for i in 0..zip.len() {
-        let mut entry = zip.by_index(i)?;
-        if excludes
-            .iter()
-            .any(|prefix| entry.name().starts_with(prefix))
-            || entry.name().starts_with("META-INF/")
-        {
+        let entry = zip.by_index(i)?;
+        let name = entry.name()?;
+        if excludes.iter().any(|prefix| name.starts_with(prefix)) || name.starts_with("META-INF/") {
             continue;
         }
-        let relative = entry
+        entry
             .enclosed_name()
             .context("El ZIP contiene una ruta no segura")?;
         anyhow::ensure!(
@@ -573,12 +604,24 @@ pub fn extract_zip(archive: &Path, destination: &Path, excludes: &[String]) -> R
                 .unwrap_or(true),
             "El ZIP contiene un enlace simbólico"
         );
-        let target = destination.join(relative);
+        let target = path_under(destination, &name)?;
+        total = total
+            .checked_add(entry.size())
+            .context("Tamaño ZIP inválido")?;
+        anyhow::ensure!(
+            entry.size() <= 256 * 1024 * 1024 && total <= 1024 * 1024 * 1024,
+            "ZIP descomprimido demasiado grande"
+        );
         if entry.is_dir() {
             fs::create_dir_all(target)?;
         } else {
             fs::create_dir_all(target.parent().context("Archivo ZIP sin directorio")?)?;
-            std::io::copy(&mut entry, &mut fs::File::create(target)?)?;
+            let expected = entry.size();
+            let actual = std::io::copy(
+                &mut entry.take(expected + 1),
+                &mut fs::File::create(target)?,
+            )?;
+            anyhow::ensure!(actual == expected, "Tamaño ZIP inconsistente");
         }
     }
     Ok(())
@@ -962,6 +1005,31 @@ mod tests {
         assert!(allows(Some(
             &json!([{"action":"allow","features":{"has_custom_resolution":true}}])
         )));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_existing_links_in_extraction_destination() {
+        use std::os::unix::fs::symlink;
+        let root = std::env::temp_dir().join(format!("luma-link-test-{}", std::process::id()));
+        let inside = root.join("inside");
+        let outside = root.join("outside");
+        fs::create_dir_all(&inside).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        symlink(&outside, inside.join("linked")).unwrap();
+        assert!(path_under(&inside, "linked/escaped.txt").is_err());
+        let archive = root.join("payload.zip");
+        let mut zip = zip::ZipWriter::new(fs::File::create(&archive).unwrap());
+        zip.start_file(
+            "linked/escaped.txt",
+            zip::write::SimpleFileOptions::default(),
+        )
+        .unwrap();
+        std::io::Write::write_all(&mut zip, b"controlled probe").unwrap();
+        zip.finish().unwrap();
+        assert!(extract_zip(&archive, &inside, &[]).is_err());
+        assert!(!outside.join("escaped.txt").exists());
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

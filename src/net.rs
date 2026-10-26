@@ -60,10 +60,16 @@ pub fn download(
         "El archivo {} necesita que se vuelva a ejecutar el instalador del cargador, o su URL no utiliza HTTPS.", target.display()
     );
     fs::create_dir_all(target.parent().context("Ruta de descarga inválida")?)?;
-    let part = target.with_extension("part");
+    let mut nonce = [0u8; 16];
+    getrandom::getrandom(&mut nonce)
+        .map_err(|_| anyhow::anyhow!("No se pudo crear una descarga temporal"))?;
+    let part = target.with_extension(format!("{:032x}.part", u128::from_le_bytes(nonce)));
     let result = (|| -> Result<()> {
         let mut response = client.get(url).send()?.error_for_status()?;
-        let mut file = fs::File::create(&part)?;
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&part)?;
         let size = std::io::copy(
             &mut response.by_ref().take(1024 * 1024 * 1024 + 1),
             &mut file,

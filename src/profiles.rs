@@ -422,7 +422,7 @@ fn extract_legacy_installer(
         let enclosed = entry
             .enclosed_name()
             .context("Ruta no segura dentro del instalador")?;
-        let name = entry.name().to_owned();
+        let name = entry.name()?.into_owned();
         let target = if let Some(relative) = name.strip_prefix("maven/") {
             Some(engine::path_under(&root.join("libraries"), relative)?)
         } else if install["install"]["filePath"].as_str() == Some(name.as_str()) {

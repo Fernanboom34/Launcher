@@ -19,4 +19,16 @@ En `content::hostile_archives`: traversal POSIX/Windows, ruta absoluta, unidad W
 
 Un hash comprueba integridad respecto al proveedor, no inocuidad. Un ZIP/JAR estructuralmente válido puede ser malicioso; Minecraft ejecuta mods con los permisos del jugador. Estos cambios no analizan bytecode, no aíslan Minecraft, no consultan antivirus/listas de reputación y no impiden que se coloquen archivos directamente en la carpeta de mods. Tampoco cubren todas las vulnerabilidades de parsers del juego ni ZIP anidados.
 
-No se realizó un análisis completo de dependencias mediante una base de avisos de seguridad, ni una prueba nativa de Windows. No se afirma que se haya eliminado todo riesgo de contenido malicioso. Para esa protección hacen falta controles adicionales de reputación y aislamiento del proceso de juego, con diseño y validación propios.
+Se consultó OSV para las 593 dependencias de registro del lockfile inicial y se distinguieron vulnerabilidades de avisos de mantenimiento. No se realizó una prueba nativa de Windows. No se afirma que se haya eliminado todo riesgo de contenido malicioso. Para esa protección hacen falta controles adicionales de reputación y aislamiento del proceso de juego, con diseño y validación propios.
+
+
+## Segunda revisión: rutas de escritura y dependencias
+
+- `engine::path_under` validaba la sintaxis pero no los enlaces existentes. Un directorio enlazado dentro del destino permitía alcanzar un archivo externo durante la extracción. Ahora rechaza enlaces en los componentes y ancestros; en Windows también reparse points. El test `rejects_existing_links_in_extraction_destination` construye un ZIP y una carpeta enlazada, exige el rechazo y comprueba que no se creó el archivo externo. La prueba nativa de enlaces solo se ejecutó en Linux.
+- La extracción ZIP del motor pasa por esa comprobación, rechaza los nombres originales peligrosos y limita entradas y bytes descomprimidos. No se restauran permisos SUID/SGID. La extracción sigue siendo no transaccional: puede dejar archivos previos a una entrada rechazada.
+- La descarga usaba un `.part` de nombre fijo con apertura que seguía enlaces. Ahora usa un nombre aleatorio criptográfico y creación exclusiva. Esto evita el ataque de precolocar un enlace en el nombre temporal conocido.
+- Se actualizó `zip` 2.6.1 a 9.1.2 para retirar RUSTSEC-2026-0367, RUSTSEC-2026-0368 y RUSTSEC-2026-0369. Esos avisos afectan a APIs de extracción de la biblioteca; Luma usa extracción propia, pero se actualiza igualmente. OSV no devolvió avisos para 9.1.2 al verificarla.
+- El lockfile también contiene glib 0.18.5 con RUSTSEC-2024-0429. `cargo tree -i glib` no lo incluye en el build Linux de Luma; el grafo con todos los targets lo arrastra por la parte GTK de wry, declarado únicamente para Windows en este proyecto. No se afirma corregido el paquete del lockfile ni su eventual uso en configuraciones distintas.
+- Quedan avisos de mantenimiento en paste, proc-macro-error, ttf-parser, zbus_names, zvariant y zvariant_derive. No se clasifican automáticamente como vulnerabilidades explotables.
+
+Estas comprobaciones de rutas no son un sandbox ni proporcionan una garantía contra carreras de otro proceso local que cambie los directorios entre la comprobación y la escritura. Resolver ese adversario requiere operaciones relativas a handles de directorio y validación nativa en ambos sistemas. Las carpetas enlazadas intencionadamente pueden ser rechazadas ahora.
