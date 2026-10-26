@@ -246,8 +246,17 @@ fn secure_download_source(uri: &str) -> bool {
         && source.password().is_none()
 }
 #[cfg(windows)]
+fn webview_version() -> Result<String> {
+    use webview2_com::Microsoft::Web::WebView2::Win32::GetAvailableCoreWebView2BrowserVersionString;
+    use windows_core::{PCWSTR, PWSTR};
+    let mut version = PWSTR::null();
+    // WebView2 allocates the returned string; take_pwstr owns and frees it.
+    unsafe { GetAvailableCoreWebView2BrowserVersionString(PCWSTR::null(), &mut version) }?;
+    Ok(webview2_com::take_pwstr(version))
+}
+#[cfg(windows)]
 fn ensure_runtime(tx: &Sender<Event>) -> Result<()> {
-    if wry::webview_version().is_ok() {
+    if webview_version().is_ok() {
         return Ok(());
     }
     tx.send(Event::Status(
@@ -267,7 +276,7 @@ fn ensure_runtime(tx: &Sender<Event>) -> Result<()> {
     );
     let script=format!("$file={quoted};$signature=Get-AuthenticodeSignature -LiteralPath $file;if($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'Microsoft Corporation'){{throw 'El instalador de WebView2 no tiene una firma válida de Microsoft'}};$p=Start-Process -FilePath $file -ArgumentList @('/silent','/install') -WindowStyle Hidden -PassThru -Wait;if($p.ExitCode -ne 0){{throw 'No se pudo instalar WebView2'}}");
     crate::distribution::ps_output(&script)?;
-    wry::webview_version().context("Instala Microsoft Edge WebView2 para abrir el navegador")?;
+    webview_version().context("Instala Microsoft Edge WebView2 para abrir el navegador")?;
     let _ = std::fs::remove_file(file);
     Ok(())
 }
@@ -303,7 +312,7 @@ fn window_impl(
         window::Window,
     };
     if probe {
-        wry::webview_version().context("La prueba requiere WebView2 ya instalado")?;
+        webview_version().context("La prueba requiere WebView2 ya instalado")?;
     } else {
         ensure_runtime(tx)?;
     }
@@ -478,6 +487,7 @@ fn window_impl(
         "Navegador abierto: las descargas pertenecen a esta instancia".into(),
     ))?;
     let started = std::time::Instant::now();
+    #[allow(deprecated)] // Preserve the isolated browser event-loop lifecycle during migration.
     events.run_on_demand(|event, target| {
         target.set_control_flow(if probe {
             ControlFlow::WaitUntil(
