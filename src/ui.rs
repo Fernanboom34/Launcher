@@ -748,7 +748,7 @@ impl Launcher {
 
     fn open_path(&mut self, path: PathBuf) {
         if let Err(error) = std::fs::create_dir_all(&self.root).and_then(|_| {
-            std::process::Command::new("explorer.exe")
+            std::process::Command::new(crate::platform::FILE_MANAGER)
                 .arg(&path)
                 .spawn()
                 .map(|_| ())

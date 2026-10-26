@@ -15,6 +15,7 @@ mod maintenance;
 mod model;
 mod net;
 mod oauth;
+mod platform;
 mod profiles;
 mod skins;
 mod ui;

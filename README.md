@@ -16,6 +16,10 @@ Esta distribución es solo una pre-release de Windows; no modifica main ni se of
 
 Launcher nativo de **Minecraft Java Edition para Windows x64**, escrito en Rust con egui. Biblioteca de instancias, temas y acentos menta, con catálogo de contenido y navegador web integrado.
 
+## Linux x64
+
+La adaptación Linux incluye paquetes `.deb` y `.tar.gz` con instalación por usuario, soporte X11/Wayland y Java/nativas Linux. Consulta [instalación, diferencias y compilación en Linux](docs/LINUX.md). Windows conserva su instalador y su proceso de publicación.
+
 ## Novedades 0.7.0
 
 - Corregida la franja negra bajo la cabecera y los mensajes CLIXML de PowerShell: los errores se presentan como texto normal en español.

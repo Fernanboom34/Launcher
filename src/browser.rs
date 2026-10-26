@@ -1,13 +1,14 @@
 use crate::{
     catalog::{self, Kind},
-    model::{self, Event, GameProfile},
+    model::{Event, GameProfile},
 };
-use anyhow::{Context, Result};
+use anyhow::Result;
 use std::{
     io::{BufRead, Read, Write},
     path::{Path, PathBuf},
     sync::{mpsc::Sender, Mutex},
 };
+use {crate::model, anyhow::Context};
 static OWNER: Mutex<Option<String>> = Mutex::new(None);
 pub fn is_open() -> bool {
     OWNER.lock().is_ok_and(|o| o.is_some())
@@ -208,6 +209,7 @@ pub fn child_main() -> Result<()> {
     let _ = reporter.join();
     result
 }
+#[cfg(windows)]
 fn candidate(dir: &Path, name: &str, kind: Kind) -> Result<PathBuf> {
     catalog::safe_filename(name, kind)?;
     let original = Path::new(name);
@@ -225,6 +227,7 @@ fn candidate(dir: &Path, name: &str, kind: Kind) -> Result<PathBuf> {
     }
     anyhow::bail!("Hay demasiados archivos con el mismo nombre")
 }
+#[cfg(windows)]
 fn secure_download_source(uri: &str) -> bool {
     let Ok(url) = url::Url::parse(uri) else {
         return false;
@@ -596,8 +599,20 @@ fn attach_download_diagnostics(
     Ok(())
 }
 #[cfg(not(windows))]
-fn window(_: &GameProfile, _: Kind, _: &Path, _: &str, _: &Sender<Event>, _: bool) -> Result<()> {
-    anyhow::bail!("El navegador integrado requiere Windows")
+fn window(
+    _: &GameProfile,
+    kind: Kind,
+    dest: &Path,
+    url: &str,
+    tx: &Sender<Event>,
+    _: bool,
+) -> Result<()> {
+    webbrowser::open(url)?;
+    tx.send(Event::Status(format!(
+        "Web abierta en el navegador del sistema. Descarga el archivo y añádelo desde Cargar archivos → Elegir archivos… a {} ({}).",
+        crate::cleanup::display_path(dest), kind.label()
+    )))?;
+    Ok(())
 }
 
 #[cfg(all(test, windows))]

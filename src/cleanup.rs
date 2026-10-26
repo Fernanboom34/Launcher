@@ -1,10 +1,11 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
     path::{Path, PathBuf},
-    process::Command,
 };
+#[cfg(windows)]
+use {anyhow::Context, std::process::Command};
 
 #[derive(Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -18,6 +19,7 @@ struct GameDirectory {
     storage: PathBuf,
 }
 static INVENTORY_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+#[cfg(windows)]
 #[derive(Clone, Default)]
 pub struct UninstallPlan {
     pub directories: Vec<PathBuf>,
@@ -31,7 +33,14 @@ pub fn data_root() -> PathBuf {
         .to_path_buf()
 }
 fn inventory_path() -> PathBuf {
-    data_root().parent().unwrap().join("installation.json")
+    #[cfg(windows)]
+    {
+        data_root().parent().unwrap().join("installation.json")
+    }
+    #[cfg(not(windows))]
+    {
+        data_root().join("installation.json")
+    }
 }
 pub fn register_executable(path: &Path) -> Result<()> {
     let _lock = INVENTORY_LOCK
@@ -75,6 +84,7 @@ pub fn remember_game_directory(path: &Path, storage: &Path) -> Result<()> {
     }
     Ok(())
 }
+#[cfg(windows)]
 fn app_directories() -> Vec<PathBuf> {
     let dirs = directories::ProjectDirs::from("dev", "Luma", "LumaLauncher").unwrap();
     let mut result = Vec::new();
@@ -189,7 +199,7 @@ pub fn delete_verified_directory(path: &Path, expected: &Path) -> Result<()> {
                 metadata.file_attributes() & 0x10 != 0
             };
             #[cfg(not(windows))]
-            let directory = path.is_dir();
+            let directory = false;
             if directory {
                 fs::remove_dir(path)?
             } else {
@@ -214,6 +224,7 @@ pub fn delete_verified_directory(path: &Path, expected: &Path) -> Result<()> {
     }
     walk(path, &expected)
 }
+#[cfg(windows)]
 fn ps_output(script: &str) -> Result<String> {
     crate::distribution::ps_output(script)
 }
@@ -225,10 +236,12 @@ pub fn display_path(path: &Path) -> String {
         text.strip_prefix(r"\\?\").unwrap_or(&text).to_owned()
     }
 }
+#[cfg(windows)]
 fn quote(path: &Path) -> String {
     format!("'{}'", display_path(path).replace('\'', "''"))
 }
 
+#[cfg(windows)]
 pub fn uninstall_plan() -> Result<UninstallPlan> {
     let mut plan = UninstallPlan::default();
     for path in app_directories() {
@@ -337,6 +350,7 @@ pub fn uninstall_plan() -> Result<UninstallPlan> {
     plan.excluded.dedup();
     Ok(plan)
 }
+#[cfg(windows)]
 pub fn ensure_not_running(plan: &UninstallPlan) -> Result<()> {
     let mut protected = plan.directories.clone();
     protected.extend(plan.files.clone());
@@ -349,6 +363,7 @@ pub fn ensure_not_running(plan: &UninstallPlan) -> Result<()> {
     ps_output(&script)?;
     Ok(())
 }
+#[cfg(windows)]
 pub fn uninstall_files(plan: &UninstallPlan) -> Result<()> {
     ensure_not_running(plan)?;
     // Check every final absolute target before making the first deletion.
@@ -378,6 +393,7 @@ pub fn uninstall_files(plan: &UninstallPlan) -> Result<()> {
     }
     Ok(())
 }
+#[cfg(windows)]
 pub fn uninstall(plan: &UninstallPlan) -> Result<()> {
     ensure_not_running(plan)?;
     for path in &plan.directories {
@@ -409,12 +425,14 @@ pub fn uninstall(plan: &UninstallPlan) -> Result<()> {
     }
     Ok(())
 }
+#[cfg(windows)]
 pub fn register_installation(exe: &Path, setup: &Path, version: &str) -> Result<()> {
     register_executable(exe)?;
     let script=format!("$ErrorActionPreference='Stop';$k='HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Luma';New-Item -Path $k -Force|Out-Null;$values=@{{DisplayName='Luma Launcher';DisplayVersion='{}';Publisher='Luma';InstallLocation={};UninstallString=('\"'+{}+'\" --uninstall')}};foreach($key in $values.Keys){{New-ItemProperty -LiteralPath $k -Name $key -Value $values[$key] -Force|Out-Null}}",version,quote(exe.parent().context("Ruta inválida")?),quote(setup));
     ps_output(&script)?;
     Ok(())
 }
+#[cfg(windows)]
 pub fn relocate_setup() -> Result<Option<PathBuf>> {
     let current = std::env::current_exe()?.canonicalize()?;
     if app_directories()
@@ -440,6 +458,7 @@ pub fn relocate_setup() -> Result<Option<PathBuf>> {
     }
     Ok(None)
 }
+#[cfg(windows)]
 pub fn delete_setup_after_exit(setup: &Path, temporary_parent: Option<&Path>) -> Result<()> {
     let checked = normalized(setup)?;
     anyhow::ensure!(
@@ -463,6 +482,7 @@ pub fn delete_setup_after_exit(setup: &Path, temporary_parent: Option<&Path>) ->
     }
     crate::distribution::powershell(&script, false)
 }
+#[cfg(windows)]
 pub fn temporary_setup_directory() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?.canonicalize().ok()?;
     let parent = exe.parent()?;
@@ -473,6 +493,7 @@ pub fn temporary_setup_directory() -> Option<PathBuf> {
             .starts_with("Luma-uninstaller-"))
     .then(|| parent.to_path_buf())
 }
+#[cfg(windows)]
 pub fn wait_for_process(id: u32) -> Result<()> {
     ps_output(&format!(
         "Wait-Process -Id {id} -ErrorAction SilentlyContinue"
@@ -525,6 +546,23 @@ mod tests {
             assert!(validate_private_directory(user.home_dir(), &[]).is_err());
         }
         assert!(validate_private_directory(Path::new("C:\\"), &[]).is_err());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_symlinks_are_unlinked_without_deleting_their_targets() {
+        use std::os::unix::fs::symlink;
+        let root = fixture();
+        let game = root.join("game");
+        let outside = root.join("outside");
+        fs::create_dir_all(&game).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join("world.dat"), b"keep").unwrap();
+        symlink(&outside, game.join("linked-world")).unwrap();
+        symlink(root.join("missing"), game.join("broken-link")).unwrap();
+        delete_verified_directory(&game, &game).unwrap();
+        assert_eq!(fs::read(outside.join("world.dat")).unwrap(), b"keep");
+        delete_verified_directory(&root, &root).unwrap();
     }
     #[cfg(windows)]
     #[test]

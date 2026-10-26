@@ -13,10 +13,10 @@ use std::{
 };
 
 pub fn official_profiles() -> Vec<Profile> {
-    let Some(appdata) = std::env::var_os("APPDATA") else {
+    let Some(folder) = crate::platform::official_minecraft_dir() else {
         return Vec::new();
     };
-    let path = std::path::PathBuf::from(appdata).join(".minecraft/launcher_accounts.json");
+    let path = folder.join("launcher_accounts.json");
     let Ok(value) = crate::model::read_json::<Value>(&path) else {
         return Vec::new();
     };

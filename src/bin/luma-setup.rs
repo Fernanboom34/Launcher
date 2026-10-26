@@ -1,15 +1,20 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#[cfg(windows)]
 #[allow(dead_code)]
 #[path = "../cleanup.rs"]
 mod cleanup;
+#[cfg(windows)]
 #[allow(dead_code)]
 #[path = "../distribution.rs"]
 mod distribution;
+#[cfg(windows)]
 use eframe::egui;
+#[cfg(windows)]
 use std::{
     path::PathBuf,
     sync::mpsc::{self, Receiver},
 };
+#[cfg(windows)]
 struct Installer {
     preview_started: std::time::Instant,
     preview_requested: bool,
@@ -26,6 +31,7 @@ struct Installer {
     remove_setup: bool,
     rx: Option<Receiver<Result<String, String>>>,
 }
+#[cfg(windows)]
 impl Default for Installer {
     fn default() -> Self {
         Self {
@@ -46,6 +52,7 @@ impl Default for Installer {
         }
     }
 }
+#[cfg(windows)]
 impl Installer {
     fn refresh_plan(&mut self) {
         self.ack = false;
@@ -161,6 +168,7 @@ impl Installer {
         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
     }
 }
+#[cfg(windows)]
 impl eframe::App for Installer {
     fn update(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
         if let Some(path) = std::env::var_os("LUMA_SETUP_PREVIEW") {
@@ -247,6 +255,7 @@ if ui.add_enabled(!self.busy,egui::Button::new("Desinstalar").selected(self.unin
         self.queue_cleanup();
     }
 }
+#[cfg(windows)]
 fn main() -> eframe::Result {
     let args: Vec<String> = std::env::args().collect();
     if let Some(index) = args.iter().position(|s| s == "--wait-for") {
@@ -330,4 +339,9 @@ fn main() -> eframe::Result {
             Ok(Box::new(app))
         }),
     )
+}
+
+#[cfg(not(windows))]
+fn main() {
+    println!("En Linux instala el paquete .deb o ejecuta ./install.sh desde el paquete Luma-linux-x64.tar.gz. Consulta docs/LINUX.md.");
 }

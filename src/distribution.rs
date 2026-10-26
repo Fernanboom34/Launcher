@@ -4,10 +4,17 @@ use sha2::{Digest, Sha256};
 use std::{
     fs,
     io::{Read, Write},
-    path::{Path, PathBuf},
-    process::Command,
+    path::Path,
     sync::mpsc::Sender,
 };
+#[cfg(windows)]
+use std::{path::PathBuf, process::Command};
+#[cfg(target_os = "linux")]
+#[path = "distribution_linux.rs"]
+mod linux;
+#[cfg(target_os = "linux")]
+pub use linux::{apply_update, shortcut};
+
 pub const REPOSITORY: &str = "Fernanboom34/Launcher";
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Release {
@@ -41,13 +48,18 @@ pub fn latest() -> Result<Release> {
         .send()?
         .error_for_status()?
         .json()?;
+    let manifest_name = if cfg!(target_os = "linux") {
+        "luma-release-linux-x64.json"
+    } else {
+        "luma-release.json"
+    };
     let manifest = response["assets"]
         .as_array()
         .context("Release sin archivos")?
         .iter()
-        .find(|a| a["name"] == "luma-release.json")
+        .find(|a| a["name"] == manifest_name)
         .and_then(|a| a["browser_download_url"].as_str())
-        .context("El release aún no tiene luma-release.json")?;
+        .with_context(|| format!("El release aún no tiene {manifest_name}"))?;
     trusted(manifest)?;
     let release: Release = c.get(manifest).send()?.error_for_status()?.json()?;
     trusted(&release.url)?;
@@ -115,10 +127,12 @@ pub fn download(release: &Release, target: &Path, status: &Sender<String>) -> Re
             format!("{:x}", hash.finalize()).eq_ignore_ascii_case(&release.sha256),
             "La descarga no coincide con su SHA-256"
         );
-        let mut executable = fs::File::open(&part)?;
-        let mut magic = [0; 2];
-        executable.read_exact(&mut magic)?;
-        anyhow::ensure!(&magic == b"MZ", "El archivo no es un ejecutable Windows");
+        validate_executable(&part)?;
+        #[cfg(target_os = "linux")]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&part, fs::Permissions::from_mode(0o755))?;
+        }
         fs::rename(&part, target)?;
         Ok(())
     })();
@@ -127,9 +141,30 @@ pub fn download(release: &Release, target: &Path, status: &Sender<String>) -> Re
     }
     result
 }
+fn validate_executable(path: &Path) -> Result<()> {
+    let mut header = [0u8; 20];
+    fs::File::open(path)?.read_exact(&mut header)?;
+    #[cfg(windows)]
+    anyhow::ensure!(
+        &header[..2] == b"MZ",
+        "El archivo no es un ejecutable Windows"
+    );
+    #[cfg(target_os = "linux")]
+    anyhow::ensure!(
+        &header[..4] == b"\x7fELF"
+            && header[4] == 2
+            && header[5] == 1
+            && u16::from_le_bytes([header[18], header[19]]) == 62,
+        "El archivo no es un ejecutable Linux x64"
+    );
+    Ok(())
+}
+
+#[cfg(windows)]
 fn quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "''"))
 }
+#[cfg(windows)]
 fn ps_command(script: &str) -> Command {
     use base64::Engine;
     let script=format!("$ProgressPreference='SilentlyContinue';$ErrorActionPreference='Stop';[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false);try {{& {{ {script} }}}} catch {{[Console]::Error.WriteLine($_.Exception.Message);exit 1}};exit 0");
@@ -157,6 +192,7 @@ fn ps_command(script: &str) -> Command {
     }
     command
 }
+#[cfg(windows)]
 pub(crate) fn ps_output(script: &str) -> Result<String> {
     let output = ps_command(script).output()?;
     anyhow::ensure!(
@@ -169,6 +205,7 @@ pub(crate) fn ps_output(script: &str) -> Result<String> {
         .trim()
         .into())
 }
+#[cfg(windows)]
 pub(crate) fn powershell(script: &str, wait: bool) -> Result<()> {
     if wait {
         ps_output(script)?;
@@ -177,6 +214,7 @@ pub(crate) fn powershell(script: &str, wait: bool) -> Result<()> {
     }
     Ok(())
 }
+#[cfg(windows)]
 fn encoded_script(script: &str) -> String {
     use base64::Engine;
     base64::engine::general_purpose::STANDARD.encode(
@@ -186,21 +224,25 @@ fn encoded_script(script: &str) -> String {
             .collect::<Vec<_>>(),
     )
 }
+#[cfg(windows)]
 fn elevate(script: &str) -> Result<()> {
     let wrapped=format!("$ProgressPreference='SilentlyContinue';$ErrorActionPreference='Stop';try{{{script};exit 0}}catch{{exit 1}}");
     let encoded = encoded_script(&wrapped);
     ps_output(&format!("try{{$p=Start-Process -FilePath powershell.exe -Verb RunAs -WindowStyle Hidden -ArgumentList @('-NoProfile','-NonInteractive','-WindowStyle','Hidden','-EncodedCommand','{encoded}') -Wait -PassThru}}catch{{throw 'Windows no autorizó los permisos de administrador.'}};if($p.ExitCode -ne 0){{throw 'Windows no pudo completar la operación en Program Files. Cierra Luma y vuelve a intentarlo.'}}"))?;
     Ok(())
 }
+#[cfg(windows)]
 pub fn legacy_install_dir() -> PathBuf {
     PathBuf::from(std::env::var_os("LOCALAPPDATA").unwrap_or_default()).join("Programs/Luma")
 }
+#[cfg(windows)]
 pub fn is_program_installation(path: &Path) -> bool {
     crate::cleanup::display_path(path)
         .trim_end_matches('\\')
         .eq_ignore_ascii_case(&crate::cleanup::display_path(&install_dir()))
 }
 #[allow(dead_code)]
+#[cfg(windows)]
 pub fn install_application(release: &Release, staged: &Path, setup: &Path) -> Result<()> {
     elevate(&installation_script(
         release,
@@ -209,6 +251,7 @@ pub fn install_application(release: &Release, staged: &Path, setup: &Path) -> Re
         &install_dir(),
     )?)
 }
+#[cfg(windows)]
 fn installation_script(
     release: &Release,
     staged: &Path,
@@ -220,6 +263,7 @@ fn installation_script(
     let script=format!("$folder={};$source={};$setup={};if((Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash -ne '{}'){{throw 'Descarga inválida'}};if((Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash -ne '{setup_hash}'){{throw 'Instalador inválido'}};New-Item -ItemType Directory -Path $folder -Force|Out-Null;Copy-Item -LiteralPath $source -Destination (Join-Path $folder 'Luma.exe') -Force;Copy-Item -LiteralPath $setup -Destination (Join-Path $folder 'Luma-Setup.exe') -Force",quote(&crate::cleanup::display_path(folder)),quote(&crate::cleanup::display_path(staged)),quote(&crate::cleanup::display_path(setup)),release.sha256);
     Ok(script)
 }
+#[cfg(windows)]
 pub fn remove_program_installation(path: &Path) -> Result<()> {
     anyhow::ensure!(
         is_program_installation(path),
@@ -227,6 +271,7 @@ pub fn remove_program_installation(path: &Path) -> Result<()> {
     );
     elevate(&removal_script(path))
 }
+#[cfg(windows)]
 fn removal_script(path: &Path) -> String {
     let target = quote(&crate::cleanup::display_path(path));
     let script = format!(
@@ -234,10 +279,12 @@ fn removal_script(path: &Path) -> String {
     );
     script
 }
+#[cfg(windows)]
 pub fn shortcut(executable: &Path, name: &str, arguments: &str) -> Result<()> {
     let script = format!("$w=New-Object -ComObject WScript.Shell;$s=$w.CreateShortcut((Join-Path ([Environment]::GetFolderPath('Desktop')) {}));$s.TargetPath={};$s.Arguments={};$s.WorkingDirectory={};$s.Save()", quote(&format!("{}.lnk", name.replace(['\\','/',':','*','?','\"','<','>','|'], "_"))), quote(&executable.to_string_lossy()), quote(arguments), quote(&executable.parent().context("Ruta inválida")?.to_string_lossy()));
     powershell(&script, true)
 }
+#[cfg(windows)]
 pub fn apply_update(staged: &Path) -> Result<()> {
     let exe = std::env::current_exe()?;
     let result = staged.with_extension("update-result.txt");
@@ -257,6 +304,7 @@ pub fn apply_update(staged: &Path) -> Result<()> {
     Ok(())
 }
 #[allow(dead_code)]
+#[cfg(windows)]
 pub fn install_dir() -> PathBuf {
     PathBuf::from(
         std::env::var_os("ProgramW6432")
@@ -329,6 +377,7 @@ mod tests {
         );
         assert!(!error.contains("CLIXML"));
     }
+    #[cfg(windows)]
     #[test]
     fn default_installation_is_program_files_and_legacy_is_detected() {
         assert_eq!(install_dir().file_name().unwrap(), "Luma Launcher");

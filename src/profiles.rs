@@ -122,10 +122,10 @@ fn detected_profile(
     let minecraft = base_version(storage, id, &mut HashSet::new())?;
     let imported = storage != root;
     let mut hash = Sha1::new();
-    hash.update(storage.to_string_lossy().to_lowercase().as_bytes());
+    hash.update(crate::platform::path_key(storage).as_bytes());
     hash.update(id.as_bytes());
     if let Some(path) = &game {
-        hash.update(path.to_string_lossy().to_lowercase().as_bytes());
+        hash.update(crate::platform::path_key(path).as_bytes());
     }
     let profile_id = format!("import-{:x}", hash.finalize());
     let game_dir = game.unwrap_or_else(|| root.join("instances").join(&profile_id));
@@ -164,8 +164,8 @@ fn detected_profile(
 pub fn discover(root: &Path, extra: Option<&Path>) -> Result<Vec<GameProfile>> {
     let profiles = load(root)?;
     let mut sources = vec![root.to_path_buf()];
-    if let Some(roaming) = std::env::var_os("APPDATA") {
-        sources.push(PathBuf::from(roaming).join(".minecraft"));
+    if let Some(folder) = crate::platform::official_minecraft_dir() {
+        sources.push(folder);
     }
     sources.extend(profiles.iter().map(|p| p.storage_dir.clone()));
     if let Some(path) = extra {
@@ -193,7 +193,7 @@ fn discover_sources(
     let original = profiles.clone();
     let mut seen_sources = HashSet::new();
     for source in sources {
-        let key = source.to_string_lossy().to_lowercase();
+        let key = crate::platform::path_key(&source);
         if !seen_sources.insert(key) {
             continue;
         }
@@ -983,7 +983,7 @@ pub fn remove_completely(root: &Path, id: &str, confirmed: &Path) -> Result<Vec<
 }
 
 fn source_key(storage: &Path, version: &str) -> String {
-    format!("{}|{}", storage.to_string_lossy().to_lowercase(), version)
+    format!("{}|{}", crate::platform::path_key(storage), version)
 }
 
 #[cfg(test)]
