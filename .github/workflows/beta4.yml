@@ -1,7 +1,6 @@
 name: Validar y publicar beta 4 Windows y Linux
 on:
-  push:
-    branches: ['release/0.8.0-beta.4']
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:

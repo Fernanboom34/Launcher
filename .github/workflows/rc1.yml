@@ -1,7 +1,6 @@
 name: Validar y publicar RC 1 Windows y Linux
 on:
-  push:
-    branches: ['release/0.8.0-rc.1']
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
