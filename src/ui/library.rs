@@ -14,8 +14,10 @@ pub(super) struct LibraryState {
     pub(super) create_open: bool,
     cover_seed: u32,
     artwork: Option<PathBuf>,
-    cover_target: Option<String>,
-    mc_search: String,
+    pub(super) cover_target: Option<String>,
+    all_mc_versions: bool,
+    pub(super) stable_loaders: HashSet<String>,
+    pub(super) fabric_builds: bool,
     loader_policy: usize,
     show_palette: bool,
     loader_due: Option<Instant>,
@@ -69,12 +71,10 @@ impl Launcher {
                     ui.label(
                         RichText::new(match self.page {
                             Page::Home => "Inicio",
-                            Page::Profiles => "Biblioteca",
-                            Page::Versions => "Versiones de Minecraft",
                             Page::Settings => "Ajustes",
-                            Page::Activity => "Actividad",
                             Page::Instance => "Instancia",
                             Page::Screenshots => "Capturas de pantalla",
+                            Page::Skins => "Skins",
                         })
                         .size(14.)
                         .strong(),
@@ -139,11 +139,14 @@ impl Launcher {
                                     );
                                     ui.label(
                                         RichText::new(if self.game_running {
-                                            "Una instancia en ejecución"
+                                            format!(
+                                                "{} instancia(s) en ejecución",
+                                                self.running_games.len()
+                                            )
                                         } else if self.busy {
-                                            "Preparando instancia…"
+                                            "Preparando instancia…".to_owned()
                                         } else {
-                                            "Ninguna instancia en ejecución"
+                                            "Ninguna instancia en ejecución".to_owned()
                                         })
                                         .size(12.)
                                         .color(palette().muted),
@@ -168,9 +171,7 @@ impl Launcher {
             .show(ctx, |ui| {
                 for (page, icon, label) in [
                     (Page::Home, Glyph::Play, "Inicio"),
-                    (Page::Profiles, Glyph::Grid, "Biblioteca de instancias"),
-                    (Page::Versions, Glyph::Download, "Versiones de Minecraft"),
-                    (Page::Activity, Glyph::Activity, "Actividad y descargas"),
+                    (Page::Skins, Glyph::Skin, "Selector de skins"),
                     (Page::Screenshots, Glyph::Image, "Capturas de pantalla"),
                 ] {
                     if art::icon_button(ui, icon, label, self.page == page, true, 48.).clicked() {
@@ -274,7 +275,7 @@ impl Launcher {
                             ui.label(RichText::new(format!("{} {}",profile.loader.label(),profile.minecraft)).size(11.).color(palette().muted));
                         });
                     });
-                    if ui.add_enabled(!self.busy,primary("Jugar").min_size(Vec2::new(ui.available_width(),36.))).clicked() {self.play_instance(&profile);}
+                    if ui.add_enabled(!self.busy || self.is_running(&profile),primary(self.play_label(&profile)).min_size(Vec2::new(ui.available_width(),36.))).clicked() {self.play_instance(&profile);}
                     ui.horizontal(|ui| {
                         if ui.add_enabled(profile.loader!=Loader::Vanilla,egui::Button::new("Mods").min_size(Vec2::new(92.,32.))).clicked() {self.instance_folder(&profile,true);}
                         if ui.add(egui::Button::new("Carpeta").min_size(Vec2::new(92.,32.))).clicked() {self.instance_folder(&profile,false);}
@@ -304,10 +305,6 @@ impl Launcher {
     pub(super) fn home(&mut self, ui: &mut egui::Ui) {
         self.library_page(ui, true);
     }
-    pub(super) fn profiles_page(&mut self, ui: &mut egui::Ui) {
-        self.library_page(ui, false);
-    }
-
     fn library_page(&mut self, ui: &mut egui::Ui, show_quick: bool) {
         egui::ScrollArea::vertical()
             .id_salt("library_scroll")
@@ -600,7 +597,13 @@ impl Launcher {
                             .color(palette().muted),
                     );
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if ui.add_enabled(!self.busy, primary("Jugar")).clicked() {
+                        if ui
+                            .add_enabled(
+                                !self.busy || self.is_running(p),
+                                primary(self.play_label(p)),
+                            )
+                            .clicked()
+                        {
                             self.play_instance(p);
                         }
                         ui.menu_button("···", |ui| self.instance_menu(ui, p));
@@ -779,7 +782,12 @@ impl Launcher {
     }
 
     fn play_control(&self, ui: &mut egui::Ui, rect: Rect, id: &str, with_label: bool) -> bool {
-        let enabled = !self.busy;
+        let running = self
+            .installations
+            .iter()
+            .find(|p| p.id == id)
+            .is_some_and(|p| self.is_running(p));
+        let enabled = !self.busy || running;
         let response = ui.interact(
             rect,
             ui.id().with(("play", id, with_label)),
@@ -789,7 +797,6 @@ impl Launcher {
                 Sense::hover()
             },
         );
-        let running = self.running_installation.as_deref() == Some(id);
         ui.painter().rect_filled(
             rect,
             8.,
@@ -809,25 +816,21 @@ impl Launcher {
         art::glyph(
             ui.painter(),
             icon,
-            if running {
-                Glyph::Activity
-            } else {
-                Glyph::Play
-            },
+            if running { Glyph::Stop } else { Glyph::Play },
             Color32::from_rgb(18, 30, 24),
         );
         if with_label {
             ui.painter().text(
                 rect.center() + Vec2::new(11., 0.),
                 egui::Align2::CENTER_CENTER,
-                if running { "Jugando" } else { "Jugar" },
+                if running { "Detener" } else { "Jugar" },
                 FontId::proportional(13.),
                 Color32::from_rgb(18, 30, 24),
             );
         }
         response
             .on_hover_text(if running {
-                "Esta instancia está en ejecución"
+                "Detener esta instancia"
             } else {
                 "Jugar"
             })
@@ -848,7 +851,7 @@ impl Launcher {
         if ui.button("Configuración").clicked() {
             ui.close_menu();
             self.open_instance(profile);
-            self.workspace.tab = 4;
+            self.workspace.settings_open = true;
         }
         if ui.button("Copiar ruta").clicked() {
             ui.ctx().copy_text(profile.game_dir.display().to_string());
@@ -888,7 +891,10 @@ impl Launcher {
             ui.close_menu();
         }
         if ui
-            .add_enabled(!self.busy, egui::Button::new("Eliminar de la biblioteca"))
+            .add_enabled(
+                !self.busy && !self.is_running(profile),
+                egui::Button::new("Eliminar de la biblioteca"),
+            )
             .clicked()
         {
             self.workspace.remove_files = false;
@@ -896,7 +902,10 @@ impl Launcher {
             ui.close_menu();
         }
         if ui
-            .add_enabled(!self.busy, egui::Button::new("Eliminar completamente…"))
+            .add_enabled(
+                !self.busy && !self.is_running(profile),
+                egui::Button::new("Eliminar completamente…"),
+            )
             .clicked()
         {
             self.workspace.remove_files = true;
@@ -905,7 +914,10 @@ impl Launcher {
         }
         ui.separator();
         if ui
-            .add_enabled(!self.busy, egui::Button::new("Jugar"))
+            .add_enabled(
+                !self.busy || self.is_running(profile),
+                egui::Button::new(self.play_label(profile)),
+            )
             .clicked()
         {
             ui.close_menu();
@@ -960,9 +972,27 @@ impl Launcher {
         self.save_settings();
     }
     pub(super) fn play_instance(&mut self, profile: &GameProfile) {
+        if self.is_running(profile) {
+            self.workspace.pending_world = None;
+            match crate::game_process::stop(&profile.game_dir) {
+                Ok(_) => self.status = format!("Deteniendo {}…", profile.name),
+                Err(e) => self.error = Some(e.to_string()),
+            }
+            return;
+        }
         if !self.busy {
             self.select_instance(profile);
             self.run(true);
+        }
+    }
+    pub(super) fn is_running(&self, p: &GameProfile) -> bool {
+        self.running_games.contains_key(&p.game_dir)
+    }
+    pub(super) fn play_label(&self, p: &GameProfile) -> &'static str {
+        if self.is_running(p) {
+            "■ Detener"
+        } else {
+            "▶ Jugar"
         }
     }
     pub(super) fn instance_folder(&mut self, profile: &GameProfile, mods: bool) {
@@ -1083,7 +1113,23 @@ impl Launcher {
         self.library.create_open = true;
         self.library.cover_seed = 0;
         self.library.artwork = None;
-        self.library.mc_search.clear();
+        self.library.all_mc_versions = false;
+        self.library.fabric_builds = false;
+        self.library.stable_loaders.clear();
+        if !self
+            .manifest
+            .versions
+            .iter()
+            .any(|v| v.id == self.new_minecraft && v.kind == "release")
+        {
+            self.new_minecraft = self
+                .manifest
+                .versions
+                .iter()
+                .find(|v| v.kind == "release")
+                .map(|v| v.id.clone())
+                .unwrap_or_default();
+        }
         self.library.show_palette = false;
         self.library.cover_target = None;
         self.rename_profile = None;
@@ -1114,8 +1160,9 @@ impl Launcher {
             }
             self.status = format!("Buscando {} para Minecraft {}…", loader.label(), minecraft);
             self.work(move |tx| {
-                let versions = profiles::loader_versions(loader, &minecraft)?;
-                tx.send(Event::LoaderVersions(loader, minecraft, versions))?;
+                let (versions, stable) =
+                    profiles::loader_versions_with_stability(loader, &minecraft)?;
+                tx.send(Event::LoaderVersions(loader, minecraft, versions, stable))?;
                 Ok(())
             });
         }
@@ -1339,29 +1386,45 @@ impl Launcher {
                             field_label(ui, "Versión de Minecraft");
                             egui::ComboBox::from_id_salt("create_minecraft")
                                 .width(ui.available_width())
-                                .height(270.)
+                                .height(310.)
+                                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
                                 .selected_text(&self.new_minecraft)
                                 .show_ui(ui, |ui| {
-                                    ui.add(
-                                        egui::TextEdit::singleline(&mut self.library.mc_search)
-                                            .hint_text("Buscar versión…")
-                                            .desired_width(ui.available_width()),
-                                    );
+                                    egui::ScrollArea::vertical()
+                                        .max_height(240.)
+                                        .show(ui, |ui| {
+                                            for version in &self.manifest.versions {
+                                                if (self.library.all_mc_versions
+                                                    || version.kind == "release")
+                                                    && ui
+                                                        .selectable_value(
+                                                            &mut self.new_minecraft,
+                                                            version.id.clone(),
+                                                            &version.id,
+                                                        )
+                                                        .clicked()
+                                                {
+                                                    ui.close_menu();
+                                                }
+                                            }
+                                        });
                                     ui.separator();
-                                    let query = self.library.mc_search.to_lowercase();
-                                    for version in &self.manifest.versions {
-                                        if version.id.to_lowercase().contains(&query) {
-                                            ui.selectable_value(
-                                                &mut self.new_minecraft,
-                                                version.id.clone(),
-                                                &version.id,
-                                            );
-                                        }
+                                    if ui
+                                        .button(if self.library.all_mc_versions {
+                                            "Mostrar solo versiones estables"
+                                        } else {
+                                            "Mostrar todas las versiones"
+                                        })
+                                        .clicked()
+                                    {
+                                        self.library.all_mc_versions =
+                                            !self.library.all_mc_versions;
                                     }
                                 });
                         });
                         if before != (self.new_loader, self.new_minecraft.clone()) {
                             self.loader_versions.clear();
+                            self.library.stable_loaders.clear();
                             self.new_loader_version.clear();
                             self.loader_query = None;
                             self.error = None;
@@ -1371,6 +1434,32 @@ impl Launcher {
                         if self.new_loader != Loader::Vanilla {
                             ui.add_space(10.);
                             field_label(ui, "Versión del cargador");
+                            if self.new_loader == Loader::Fabric {
+                                let before = self.library.fabric_builds;
+                                ui.horizontal(|ui| {
+                                    ui.selectable_value(
+                                        &mut self.library.fabric_builds,
+                                        false,
+                                        "Estables",
+                                    );
+                                    ui.selectable_value(
+                                        &mut self.library.fabric_builds,
+                                        true,
+                                        "Todas las builds",
+                                    );
+                                });
+                                if before != self.library.fabric_builds {
+                                    self.new_loader_version = self
+                                        .loader_versions
+                                        .iter()
+                                        .find(|v| {
+                                            self.library.fabric_builds
+                                                || self.library.stable_loaders.contains(*v)
+                                        })
+                                        .cloned()
+                                        .unwrap_or_default();
+                                }
+                            }
                             ui.horizontal(|ui| {
                                 if ui
                                     .selectable_value(
@@ -1380,7 +1469,11 @@ impl Launcher {
                                     )
                                     .clicked()
                                 {
-                                    if let Some(version) = self.loader_versions.first() {
+                                    if let Some(version) = self.loader_versions.iter().find(|v| {
+                                        self.new_loader != Loader::Fabric
+                                            || self.library.fabric_builds
+                                            || self.library.stable_loaders.contains(*v)
+                                    }) {
                                         self.new_loader_version = version.clone();
                                     }
                                 }
@@ -1404,6 +1497,15 @@ impl Launcher {
                                         })
                                         .show_ui(ui, |ui| {
                                             for version in &self.loader_versions {
+                                                if self.new_loader == Loader::Fabric
+                                                    && !self.library.fabric_builds
+                                                    && !self
+                                                        .library
+                                                        .stable_loaders
+                                                        .contains(version)
+                                                {
+                                                    continue;
+                                                }
                                                 ui.selectable_value(
                                                     &mut self.new_loader_version,
                                                     version.clone(),
@@ -1488,7 +1590,7 @@ impl Launcher {
                 ..Default::default()
             });
             self.library.create_open = false;
-            self.page = Page::Profiles;
+            self.page = Page::Home;
             let root = self.root.clone();
             let settings = self.settings.clone();
             self.work(move |tx| {

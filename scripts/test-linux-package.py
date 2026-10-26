@@ -9,9 +9,11 @@ import tarfile
 import tempfile
 
 repo = Path(__file__).resolve().parent.parent
-version = re.search(r'^version = "([0-9.]+)"', (repo / 'Cargo.toml').read_text(), re.M)[1]
-archive = repo / 'artifacts' / f'Luma-{version}-linux-x64.tar.gz'
-deb = repo / 'artifacts' / f'luma-launcher_{version}_amd64.deb'
+version = re.search(r'^version = "([^"]+)"', (repo / 'Cargo.toml').read_text(), re.M)[1]
+linux_version = version[:-8] if version.endswith('-windows') else version
+deb_version = linux_version.replace('-beta.', '~beta.')
+archive = repo / 'artifacts' / f'Luma-{linux_version}-linux-x64.tar.gz'
+deb = repo / 'artifacts' / f'luma-launcher_{deb_version}_amd64.deb'
 
 
 def run(*command, env, expected=0):

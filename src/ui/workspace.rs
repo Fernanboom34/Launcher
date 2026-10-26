@@ -4,6 +4,7 @@ use crate::{content, distribution};
 pub(super) struct Workspace {
     pub tab: usize,
     pub settings_tab: usize,
+    pub(super) settings_open: bool,
     pub global_tab: usize,
     pub pending_world: Option<String>,
     pub import_open: bool,
@@ -22,6 +23,12 @@ pub(super) struct Workspace {
     log_time: Option<Instant>,
     log_file: PathBuf,
     items: Vec<content::Content>,
+    selected_content: HashSet<PathBuf>,
+    pub(super) content_info: std::collections::HashMap<PathBuf, crate::content_meta::Info>,
+    content_textures: std::collections::HashMap<PathBuf, egui::TextureHandle>,
+    content_stamp: Vec<(PathBuf, u64, u64)>,
+    pub(super) metadata_generation: u64,
+    sort_desc: bool,
     worlds: Vec<content::World>,
     shots: Vec<content::Screenshot>,
     recent_worlds: std::collections::HashMap<String, (Instant, Option<content::World>)>,
@@ -29,6 +36,9 @@ pub(super) struct Workspace {
     file_path: PathBuf,
     editing: Option<GameProfile>,
     loader_choices: Vec<String>,
+    stable_loaders: HashSet<String>,
+    all_mc: bool,
+    fabric_builds: bool,
     loader_key: Option<(Loader, String)>,
     new_account: String,
     import_kind: usize,
@@ -47,11 +57,53 @@ impl Launcher {
         self.workspace.editing = Some(p.clone());
         self.workspace.file_path = p.game_dir.clone();
         self.refresh_instance(p);
+        if std::env::var_os("LUMA_PREVIEW").is_some()
+            && std::env::var_os("LUMA_PREVIEW_SELECT_ALL").is_some()
+        {
+            self.workspace
+                .selected_content
+                .extend(self.workspace.items.iter().map(|i| i.path.clone()));
+        }
     }
     pub(super) fn refresh_instance(&mut self, p: &GameProfile) {
         self.workspace.items = content::contents(&p.game_dir);
+        self.workspace
+            .selected_content
+            .retain(|path| self.workspace.items.iter().any(|item| item.path == *path));
+        let stamp = self
+            .workspace
+            .items
+            .iter()
+            .map(|item| {
+                let m = std::fs::metadata(&item.path).ok();
+                (
+                    item.path.clone(),
+                    m.as_ref().map(|m| m.len()).unwrap_or(0),
+                    m.and_then(|m| m.modified().ok())
+                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                        .map(|d| d.as_nanos() as u64)
+                        .unwrap_or(0),
+                )
+            })
+            .collect::<Vec<_>>();
+        if self.workspace.content_stamp != stamp {
+            self.workspace.content_stamp = stamp;
+            self.load_content_metadata(p, false);
+        }
         self.workspace.worlds = content::worlds(&p.game_dir);
         self.workspace.refreshed = Some(Instant::now());
+    }
+    fn load_content_metadata(&mut self, p: &GameProfile, force: bool) {
+        self.workspace.metadata_generation += 1;
+        let generation = self.workspace.metadata_generation;
+        let profile = p.clone();
+        let items = self.workspace.items.clone();
+        let tx = self.tx.clone();
+        std::thread::spawn(move || {
+            let _ = crate::content_meta::load(&profile.game_dir, &items, force, |info| {
+                let _ = tx.send(Event::ContentInfo(profile.id.clone(), generation, info));
+            });
+        });
     }
     pub(super) fn recent_world(&mut self, p: &GameProfile) -> Option<content::World> {
         let stale = self
@@ -71,6 +123,10 @@ impl Launcher {
             .and_then(|(_, world)| world.clone())
     }
     pub(super) fn play_recent(&mut self, p: &GameProfile) {
+        if self.is_running(p) {
+            self.play_instance(p);
+            return;
+        }
         let version = std::fs::read(
             p.storage_dir
                 .join("versions")
@@ -144,36 +200,43 @@ impl Launcher {
                     .on_hover_text("Configuración de instancia")
                     .clicked()
                 {
-                    self.workspace.tab = 4;
+                    self.workspace.settings_open = true;
                 }
-                if ui.add_enabled(!self.busy, primary("▶ Jugar")).clicked() {
+                if ui
+                    .add_enabled(
+                        !self.busy || self.is_running(&p),
+                        primary(self.play_label(&p)),
+                    )
+                    .clicked()
+                {
                     self.play_instance(&p);
                 }
             });
         });
         ui.add_space(12.);
         ui.separator();
-        ui.horizontal(|ui| {
-            for (i, label) in [
-                "Contenido",
-                "Archivos",
-                "Mundos",
-                "Registros",
-                "Configuración",
-            ]
-            .iter()
-            .enumerate()
-            {
-                ui.selectable_value(&mut self.workspace.tab, i, *label);
-            }
-        });
+        egui::Frame::new()
+            .fill(palette().panel)
+            .stroke(Stroke::new(1.0_f32, palette().border))
+            .corner_radius(24)
+            .inner_margin(5.)
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    for (i, label) in ["Contenido", "Archivos", "Mundos", "Registros"]
+                        .iter()
+                        .enumerate()
+                    {
+                        ui.selectable_value(&mut self.workspace.tab, i, *label);
+                    }
+                });
+            });
         ui.add_space(12.);
         match self.workspace.tab {
             0 => self.content_page(ui, &p),
             1 => self.files_page(ui, &p),
             2 => self.worlds_page(ui, &p),
             3 => self.logs_page(ui, &p),
-            _ => self.instance_settings(ui, &p),
+            _ => self.logs_page(ui, &p),
         }
         self.content_import(ui.ctx(), &p);
     }
@@ -181,46 +244,206 @@ impl Launcher {
         ui.horizontal(|ui| {
             ui.add(
                 egui::TextEdit::singleline(&mut self.workspace.query)
-                    .hint_text("Buscar contenido…")
-                    .desired_width((ui.available_width() - 260.).max(120.)),
+                    .hint_text("Buscar proyectos…")
+                    .desired_width((ui.available_width() - 350.).max(120.))
+                    .margin(Vec2::new(10., 10.)),
             );
-            if ui.button("+ Cargar archivos").clicked() {
+            if ui.button("Cargar archivos").clicked() {
                 self.workspace.import_open = true;
             }
-            if ui.button("Refrescar").clicked() {
-                self.refresh_instance(p);
+            if ui
+                .add_enabled(!self.busy, primary("Explorar contenido"))
+                .clicked()
+            {
+                let kind = match self.workspace.filter {
+                    2 => crate::catalog::Kind::ResourcePack,
+                    3 => crate::catalog::Kind::Shader,
+                    _ => crate::catalog::Kind::Mod,
+                };
+                self.open_catalog(p, kind, None);
             }
         });
-        ui.horizontal(|ui| {
-            for (i, s) in ["Todo", "Mods", "Resource packs", "Shaders", "Data packs"]
+        ui.horizontal_wrapped(|ui| {
+            egui::ComboBox::from_id_salt("content_order")
+                .selected_text(if self.workspace.sort_desc {
+                    "Nombre (Z-A)"
+                } else {
+                    "Nombre (A-Z)"
+                })
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut self.workspace.sort_desc, false, "Nombre (A-Z)");
+                    ui.selectable_value(&mut self.workspace.sort_desc, true, "Nombre (Z-A)");
+                });
+            for (i, label) in ["Todo", "Mods", "Resource packs", "Shaders", "Data packs"]
                 .iter()
                 .enumerate()
             {
-                ui.selectable_value(&mut self.workspace.filter, i, *s);
+                ui.selectable_value(&mut self.workspace.filter, i, *label);
+            }
+            if ui.button("Refrescar").clicked() {
+                self.refresh_instance(p);
+                self.load_content_metadata(p, true);
             }
         });
+        ui.add_space(8.);
         let query = self.workspace.query.to_lowercase();
         let kind =
             ["Todo", "Mods", "Resource packs", "Shaders", "Data packs"][self.workspace.filter];
-        let items: Vec<_> = self
+        let mut items = self
             .workspace
             .items
             .iter()
-            .filter(|x| {
-                x.name.to_lowercase().contains(&query) && (kind == "Todo" || x.kind == kind)
+            .filter(|item| {
+                let title = self
+                    .workspace
+                    .content_info
+                    .get(&item.path)
+                    .map(|m| m.title.as_str())
+                    .unwrap_or(&item.name);
+                (item.name.to_lowercase().contains(&query) || title.to_lowercase().contains(&query))
+                    && (kind == "Todo" || item.kind == kind)
             })
             .cloned()
-            .collect();
-        ui.small(format!(
-            "{} elementos · Desactivar conserva el archivo. Quitar lo mueve a .luma/removed.",
-            items.len()
-        ));
-        egui::ScrollArea::vertical().id_salt("instance_content").show(ui,|ui|{
-            if items.is_empty(){card().show(ui,|ui|{ui.label("Esta vista está vacía. Añade tus archivos para personalizar la instancia.");});}
-            for item in items {let response=card().inner_margin(12.).show(ui,|ui|{ui.set_min_width(ui.available_width());ui.horizontal(|ui|{ui.vertical(|ui|{ui.strong(&item.name);ui.label(RichText::new(&item.kind).small().color(palette().muted));});ui.with_layout(Layout::right_to_left(Align::Center),|ui|{let mut enabled=item.enabled;if ui.add_enabled_ui(!self.busy,|ui|switch(ui,&mut enabled)).inner.changed(){self.content_action(content::toggle(&p.game_dir,&item),p);}ui.menu_button("···",|ui|{self.content_menu(ui,p,&item);});});});}).response;
-                response.context_menu(|ui|self.content_menu(ui,p,&item));ui.add_space(3.);
-            }
+            .collect::<Vec<_>>();
+        items.sort_by_cached_key(|item| {
+            self.workspace
+                .content_info
+                .get(&item.path)
+                .map(|m| m.title.to_lowercase())
+                .unwrap_or_else(|| item.name.to_lowercase())
         });
+        if self.workspace.sort_desc {
+            items.reverse();
+        }
+        self.workspace
+            .selected_content
+            .retain(|path| items.iter().any(|i| i.path == *path));
+        let selected = self.workspace.selected_content.len();
+        let width = ui.available_width();
+        let project_width = ((width - 200.) * 0.53).max(140.);
+        let version_width = (width - project_width - 200.).max(110.);
+        egui::Frame::new().fill(palette().card).stroke(Stroke::new(1.0_f32,palette().border)).corner_radius(16).inner_margin(0.).show(ui,|ui|{
+            egui::Frame::new().fill(palette().panel).inner_margin(12.).show(ui,|ui|{ui.set_width(width-24.);ui.horizontal(|ui|{
+                let mut all=!items.is_empty() && items.iter().all(|i|self.workspace.selected_content.contains(&i.path));
+                if ui.checkbox(&mut all,"").on_hover_text("Seleccionar todos los proyectos visibles").changed(){if all{self.workspace.selected_content.extend(items.iter().map(|i|i.path.clone()));}else{self.workspace.selected_content.clear();}}
+                for (label,width) in [("Proyecto",project_width),("Versión",version_width)]{let(rect,_)=ui.allocate_exact_size(Vec2::new(width,22.),Sense::hover());ui.painter().text(rect.left_center(),egui::Align2::LEFT_CENTER,label,egui::FontId::proportional(14.),palette().muted);}
+                ui.with_layout(Layout::right_to_left(Align::Center),|ui|{ui.label(RichText::new("Acciones").strong().color(palette().muted));});
+            });});
+            egui::ScrollArea::vertical().id_salt("instance_content").max_height((ui.available_height()-if selected>0{84.}else{18.}).max(120.)).show(ui,|ui|{
+                ui.spacing_mut().item_spacing.y=0.;
+                if items.is_empty(){ui.add_space(24.);ui.label("No hay proyectos en esta vista. Añade contenido a la instancia.");ui.add_space(24.);}
+                for item in &items{
+                    let info=self.workspace.content_info.get(&item.path).cloned().unwrap_or_else(||crate::content_meta::Info{title:item.name.clone(),..Default::default()});
+                    let chosen=self.workspace.selected_content.contains(&item.path);
+                    let response=ui.scope_builder(egui::UiBuilder::new().sense(Sense::click()),|ui|{
+                        egui::Frame::new().fill(if chosen{palette().hover}else{palette().card}).inner_margin(12.).show(ui,|ui|{ui.set_width(width-24.);ui.horizontal(|ui|{
+                            let mut checked=chosen;if ui.checkbox(&mut checked,"").changed(){if checked{self.workspace.selected_content.insert(item.path.clone());}else{self.workspace.selected_content.remove(&item.path);}}
+                            ui.allocate_ui_with_layout(Vec2::new(project_width,50.),Layout::left_to_right(Align::Center),|ui|{
+                                self.content_icon(ui,&info,&item.kind);
+                                ui.vertical(|ui|{ui.set_width((project_width-60.).max(80.));ui.add(egui::Label::new(RichText::new(&info.title).strong()).truncate());ui.add(egui::Label::new(RichText::new(if info.author.is_empty(){&item.kind}else{&info.author}).small().color(palette().muted)).truncate());});
+                            });
+                            ui.allocate_ui_with_layout(Vec2::new(version_width,50.),Layout::top_down(Align::Min),|ui|{ui.add(egui::Label::new(RichText::new(if info.version.is_empty(){"—"}else{&info.version}).strong()).truncate());ui.add(egui::Label::new(RichText::new(&item.name).color(palette().muted)).truncate());});
+                            ui.with_layout(Layout::right_to_left(Align::Center),|ui|{
+                                ui.menu_button("···",|ui|self.content_menu(ui,p,item));
+                                if ui.add_enabled(!self.busy,egui::Button::new("×")).on_hover_text("Quitar proyecto; se conserva en .luma/removed").clicked(){self.content_action(content::archive(&p.game_dir,&item.path),p);}
+                                let mut enabled=item.enabled;if ui.add_enabled_ui(!self.busy,|ui|switch(ui,&mut enabled)).inner.changed(){self.content_action(content::toggle(&p.game_dir,item),p);}
+                            });
+                        });});
+                    }).response;
+                    response.context_menu(|ui|self.content_menu(ui,p,item));
+                    let line=ui.cursor().top();ui.painter().line_segment([Pos2::new(ui.min_rect().left(),line),Pos2::new(ui.min_rect().left()+width,line)],Stroke::new(1.0_f32,palette().border));
+                }
+            });
+        });
+        if !self.workspace.selected_content.is_empty() {
+            ui.add_space(10.);
+            egui::Frame::new()
+                .fill(palette().panel)
+                .stroke(Stroke::new(1.0_f32, palette().border))
+                .corner_radius(16)
+                .inner_margin(12.)
+                .show(ui, |ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.strong(format!(
+                            "{} proyectos seleccionados",
+                            self.workspace.selected_content.len()
+                        ));
+                        if ui.button("Limpiar selección").clicked() {
+                            self.workspace.selected_content.clear();
+                        }
+                        ui.separator();
+                        if ui
+                            .add_enabled(!self.busy, egui::Button::new("Activar"))
+                            .clicked()
+                        {
+                            self.bulk_content(p, Some(true));
+                        }
+                        if ui
+                            .add_enabled(!self.busy, egui::Button::new("Desactivar"))
+                            .clicked()
+                        {
+                            self.bulk_content(p, Some(false));
+                        }
+                        if ui
+                            .add_enabled(
+                                !self.busy,
+                                egui::Button::new(
+                                    RichText::new("Quitar").color(Color32::from_rgb(255, 90, 115)),
+                                ),
+                            )
+                            .on_hover_text("Mueve los archivos seleccionados a .luma/removed")
+                            .clicked()
+                        {
+                            self.bulk_content(p, None);
+                        }
+                    });
+                });
+        }
+    }
+    fn content_icon(&mut self, ui: &mut egui::Ui, info: &crate::content_meta::Info, kind: &str) {
+        let (rect, _) = ui.allocate_exact_size(Vec2::splat(46.), Sense::hover());
+        if let Some(path) = &info.icon {
+            if !self.workspace.content_textures.contains_key(path) {
+                if let Ok(image) = image::open(path) {
+                    let image = image.to_rgba8();
+                    let size = [image.width() as usize, image.height() as usize];
+                    self.workspace.content_textures.insert(
+                        path.clone(),
+                        ui.ctx().load_texture(
+                            path.display().to_string(),
+                            egui::ColorImage::from_rgba_unmultiplied(size, image.as_raw()),
+                            egui::TextureOptions::LINEAR,
+                        ),
+                    );
+                }
+            }
+            if let Some(texture) = self.workspace.content_textures.get(path) {
+                ui.painter().image(
+                    texture.id(),
+                    rect,
+                    Rect::from_min_max(Pos2::ZERO, Pos2::new(1., 1.)),
+                    Color32::WHITE,
+                );
+                return;
+            }
+        }
+        ui.painter().rect_filled(rect, 7., palette().panel);
+        super::art::glyph(
+            ui.painter(),
+            rect.shrink(8.),
+            if kind == "Mods" {
+                super::art::Glyph::Settings
+            } else {
+                super::art::Glyph::Image
+            },
+            palette().muted,
+        );
+    }
+    fn bulk_content(&mut self, p: &GameProfile, enabled: Option<bool>) {
+        let result =
+            content::bulk(&p.game_dir, &self.workspace.selected_content, enabled).map(|_| ());
+        self.workspace.selected_content.clear();
+        self.content_action(result, p);
     }
     fn content_action(&mut self, result: anyhow::Result<()>, p: &GameProfile) {
         if let Err(e) = result {
@@ -386,26 +609,31 @@ impl Launcher {
                     {
                         continue;
                     }
-                    let response = card()
-                        .show(ui, |ui| {
-                            ui.set_min_width(ui.available_width());
-                            ui.horizontal(|ui| {
-                                ui.vertical(|ui| {
-                                    ui.strong(&world.name);
-                                    ui.label(RichText::new(&world.mode).color(palette().muted));
-                                });
-                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                    if ui.add_enabled(!self.busy, primary("▶ Jugar")).clicked() {
-                                        self.workspace.pending_world = Some(world.folder.clone());
-                                        self.play_instance(p);
-                                    }
-                                    if ui.button("Carpeta").clicked() {
-                                        self.open_path(world.path.clone());
-                                    }
-                                });
+                    let response = interactive_card(ui, |ui| {
+                        ui.set_min_width(ui.available_width());
+                        ui.horizontal(|ui| {
+                            ui.vertical(|ui| {
+                                ui.strong(&world.name);
+                                ui.label(RichText::new(&world.mode).color(palette().muted));
                             });
-                        })
-                        .response;
+                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                if ui
+                                    .add_enabled(
+                                        !self.busy || self.is_running(p),
+                                        primary(self.play_label(p)),
+                                    )
+                                    .clicked()
+                                {
+                                    self.workspace.pending_world = Some(world.folder.clone());
+                                    self.play_instance(p);
+                                }
+                                if ui.button("Carpeta").clicked() {
+                                    self.open_path(world.path.clone());
+                                }
+                            });
+                        });
+                    })
+                    .response;
                     response.context_menu(|ui| {
                         if ui.button("Abrir carpeta").clicked() {
                             self.open_path(world.path.clone());
@@ -557,16 +785,24 @@ impl Launcher {
             .runtime
             .clone()
             .unwrap_or_else(|| profiles::default_runtime(&self.root));
-        ui.horizontal_top(|ui|{ui.vertical(|ui|{ui.set_width(145.);for(i,label)in ["General","Instalación","Java y memoria","Ventana","Comandos de inicio"].iter().enumerate(){ui.selectable_value(&mut self.workspace.settings_tab,i,*label);}});ui.separator();
+        ui.horizontal_top(|ui|{ui.vertical(|ui|{ui.set_width(180.);ui.label(RichText::new("INSTANCIA").small().color(palette().muted));for(i,label)in ["General","Instalación","Java y memoria","Ventana","Comandos de inicio"].iter().enumerate(){if i==2{ui.add_space(18.);ui.label(RichText::new("JUEGO").small().color(palette().muted));}ui.add_sized([180.,36.],egui::Button::new(*label).selected(self.workspace.settings_tab==i)).clicked().then(||self.workspace.settings_tab=i);}});ui.separator();
             egui::ScrollArea::vertical().id_salt("instance_settings").show(ui,|ui|{ui.with_layout(Layout::top_down(Align::Min),|ui|{ui.set_width(ui.available_width());match self.workspace.settings_tab{
-                0=>{ui.heading("General");ui.label("Nombre de la instancia");ui.text_edit_singleline(&mut edit.name);ui.label(RichText::new(p.game_dir.display().to_string()).small().color(palette().muted));if ui.button("Abrir carpeta").clicked(){self.instance_folder(p,false);}}
-                1=>{ui.heading("Editar instalación");ui.horizontal_wrapped(|ui|{for loader in Loader::ALL{ui.selectable_value(&mut edit.loader,loader,loader.label());}});ui.label("Versión de Minecraft");
-                    egui::ComboBox::from_id_salt("edit_mc").selected_text(&edit.minecraft).show_ui(ui,|ui|{for v in &self.manifest.versions{ui.selectable_value(&mut edit.minecraft,v.id.clone(),&v.id);}});
+                0=>{
+                    ui.horizontal_top(|ui|{ui.vertical(|ui|{ui.label(RichText::new("Nombre").strong());ui.add(egui::TextEdit::singleline(&mut edit.name).desired_width((ui.available_width()-120.).max(180.)));ui.label(RichText::new(crate::cleanup::display_path(&p.game_dir)).small().color(palette().muted));if ui.button("Abrir carpeta").clicked(){self.instance_folder(p,false);}});ui.vertical(|ui|{ui.label(RichText::new("Ícono").strong());let(rect,_)=ui.allocate_exact_size(Vec2::splat(92.),Sense::hover());self.paint_cover(ui,rect,p);if ui.add_sized([104.,32.],egui::Button::new("Personalizar").wrap_mode(egui::TextWrapMode::Extend)).clicked(){self.library.cover_target=Some(p.id.clone());self.workspace.settings_open=false;}});});
+                    ui.add_space(24.);ui.heading("Duplicar instancia");ui.label("Crea una copia con sus mundos, configuración y contenido.");
+                    if ui.add_enabled(!self.busy&&!self.is_running(p),egui::Button::new("Duplicar")).clicked(){let root=self.root.clone();let profile=p.clone();self.work(move|tx|{tx.send(Event::Profiles(profiles::duplicate(&root,&profile)?))?;Ok(())});self.workspace.settings_open=false;self.page=Page::Home;}
+                    ui.add_space(24.);ui.heading("Eliminar instancia");
+                    if ui.add_enabled(!self.busy&&!self.is_running(p),egui::Button::new("Quitar de la biblioteca")).clicked(){self.workspace.remove=Some(p.id.clone());self.workspace.remove_files=false;self.workspace.remove_ack=false;self.workspace.settings_open=false;}
+                    if ui.add_enabled(!self.busy&&!self.is_running(p),egui::Button::new(RichText::new("Eliminar permanentemente…").color(Color32::from_rgb(255,80,120)))).clicked(){self.workspace.remove=Some(p.id.clone());self.workspace.remove_files=true;self.workspace.remove_ack=false;self.workspace.settings_open=false;}
+                }
+                1=>{ui.heading("Editar instalación");if self.is_running(p){ui.label("Detén esta instancia para cambiar o reparar su instalación.");}ui.horizontal_wrapped(|ui|{for loader in Loader::ALL{ui.selectable_value(&mut edit.loader,loader,loader.label());}});ui.label("Versión de Minecraft");
+                    egui::ComboBox::from_id_salt("edit_mc").close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).selected_text(&edit.minecraft).show_ui(ui,|ui|{egui::ScrollArea::vertical().max_height(220.).show(ui,|ui|{for v in &self.manifest.versions{if (self.workspace.all_mc || v.kind=="release") && ui.selectable_value(&mut edit.minecraft,v.id.clone(),&v.id).clicked(){ui.close_menu();}}});ui.separator();if ui.button(if self.workspace.all_mc{"Mostrar solo versiones estables"}else{"Mostrar todas las versiones"}).clicked(){self.workspace.all_mc = !self.workspace.all_mc;}});
                     ui.label("Versión del modloader");ui.add_enabled(edit.loader!=Loader::Vanilla,egui::TextEdit::singleline(&mut edit.loader_version).hint_text("Elige una versión compatible"));
-                    if ui.add_enabled(!self.busy&&edit.loader!=Loader::Vanilla,egui::Button::new("Consultar versiones compatibles")).clicked(){let loader=edit.loader;let mc=edit.minecraft.clone();self.workspace.loader_key=Some((loader,mc.clone()));let tx=self.tx.clone();std::thread::spawn(move||{match profiles::loader_versions(loader,&mc){Ok(v)=>{let _=tx.send(Event::EditorLoaderVersions(v));}Err(e)=>{let _=tx.send(Event::Error(e.to_string()));}}});}
-                    if self.workspace.loader_key.as_ref()==Some(&(edit.loader,edit.minecraft.clone())){egui::ComboBox::from_id_salt("edit_loader").selected_text(&edit.loader_version).show_ui(ui,|ui|{for v in &self.workspace.loader_choices{ui.selectable_value(&mut edit.loader_version,v.clone(),v);}});}
-                    ui.add_space(12.);if ui.add_enabled(!self.busy,primary("Guardar e instalar")).clicked(){let request=ProfileRequest{name:edit.name.clone(),minecraft:edit.minecraft.clone(),loader:edit.loader,loader_version:edit.loader_version.clone()};let root=self.root.clone();let settings=self.settings.clone();let profile=edit.clone();self.work(move|tx|profiles::update_installation(&root,profile,&request,&settings,&tx));}
-                    ui.separator();ui.heading("Reparar instancia");ui.label("Verifica los archivos descargados y reinstala las dependencias del juego y del loader. Conserva los mundos y el contenido.");if ui.add_enabled(!self.busy,egui::Button::new("Reparar")).clicked(){let request=ProfileRequest{name:p.name.clone(),minecraft:p.minecraft.clone(),loader:p.loader,loader_version:p.loader_version.clone()};let root=self.root.clone();let settings=self.settings.clone();let profile=p.clone();self.work(move|tx|profiles::update_installation(&root,profile,&request,&settings,&tx));}
+                    if ui.add_enabled(!self.busy&&edit.loader!=Loader::Vanilla,egui::Button::new("Consultar versiones compatibles")).clicked(){let loader=edit.loader;let mc=edit.minecraft.clone();self.workspace.loader_key=Some((loader,mc.clone()));let tx=self.tx.clone();std::thread::spawn(move||{match profiles::loader_versions_with_stability(loader,&mc){Ok((v,stable))=>{let _=tx.send(Event::EditorLoaderVersions(v,stable));}Err(e)=>{let _=tx.send(Event::Error(e.to_string()));}}});}
+                    if edit.loader==Loader::Fabric{ui.horizontal(|ui|{ui.selectable_value(&mut self.workspace.fabric_builds,false,"Estables");ui.selectable_value(&mut self.workspace.fabric_builds,true,"Todas las builds");});}
+                    if self.workspace.loader_key.as_ref()==Some(&(edit.loader,edit.minecraft.clone())){egui::ComboBox::from_id_salt("edit_loader").selected_text(&edit.loader_version).show_ui(ui,|ui|{for v in &self.workspace.loader_choices{if edit.loader==Loader::Fabric && !self.workspace.fabric_builds && !self.workspace.stable_loaders.contains(v){continue;}ui.selectable_value(&mut edit.loader_version,v.clone(),v);}});}
+                    ui.add_space(12.);if ui.add_enabled(!self.busy&&!self.is_running(p),primary("Guardar e instalar")).clicked(){let request=ProfileRequest{name:edit.name.clone(),minecraft:edit.minecraft.clone(),loader:edit.loader,loader_version:edit.loader_version.clone()};let root=self.root.clone();let settings=self.settings.clone();let profile=edit.clone();self.work(move|tx|profiles::update_installation(&root,profile,&request,&settings,&tx));}
+                    ui.separator();ui.heading("Reparar instancia");ui.label("Verifica los archivos descargados y reinstala las dependencias del juego y del loader. Conserva los mundos y el contenido.");if ui.add_enabled(!self.busy&&!self.is_running(p),egui::Button::new("Reparar")).clicked(){let request=ProfileRequest{name:p.name.clone(),minecraft:p.minecraft.clone(),loader:p.loader,loader_version:p.loader_version.clone()};let root=self.root.clone();let settings=self.settings.clone();let profile=p.clone();self.work(move|tx|profiles::update_installation(&root,profile,&request,&settings,&tx));}
                 }
                 2=>{ui.heading("Java y memoria");runtime_editor(ui,&mut runtime);}
                 3=>{ui.heading("Ventana del juego");window_editor(ui,&mut runtime);}
@@ -799,31 +1035,112 @@ if let Some(release)=self.update_release.clone(){ui.label(format!("Nueva versió
             });
     }
     pub(super) fn workspace_windows(&mut self, ctx: &egui::Context) {
+        if self.workspace.settings_open {
+            if let Some(profile) = self.active_installation().cloned() {
+                let mut close = false;
+                let response = egui::Modal::new(egui::Id::new("instance_settings_modal"))
+                    .backdrop_color(Color32::from_black_alpha(170))
+                    .frame(
+                        egui::Frame::new()
+                            .fill(palette().card)
+                            .stroke(Stroke::new(1.0_f32, palette().border))
+                            .corner_radius(18)
+                            .inner_margin(0.),
+                    )
+                    .show(ctx, |ui| {
+                        let width = (ctx.screen_rect().width() - 60.).min(900.);
+                        ui.set_width(width);
+                        egui::Frame::new()
+                            .fill(palette().panel)
+                            .inner_margin(22.)
+                            .show(ui, |ui| {
+                                ui.set_width(width - 44.);
+                                ui.horizontal(|ui| {
+                                    let (rect, _) =
+                                        ui.allocate_exact_size(Vec2::splat(32.), Sense::hover());
+                                    self.paint_cover(ui, rect, &profile);
+                                    ui.label(
+                                        RichText::new(&profile.name)
+                                            .strong()
+                                            .color(palette().muted),
+                                    );
+                                    ui.label("›");
+                                    ui.label(RichText::new("Configuración").size(20.).strong());
+                                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                        if ui.button("×").clicked() {
+                                            close = true;
+                                        }
+                                    });
+                                });
+                            });
+                        ui.separator();
+                        egui::Frame::new().inner_margin(22.).show(ui, |ui| {
+                            ui.set_width(width - 44.);
+                            ui.set_height((ctx.screen_rect().height() - 200.).clamp(300., 560.));
+                            self.instance_settings(ui, &profile);
+                        });
+                    });
+                if close || response.should_close() {
+                    self.workspace.settings_open = false;
+                }
+            } else {
+                self.workspace.settings_open = false;
+            }
+        }
         if let Some(id) = self.workspace.remove.clone() {
+            let Some(profile) = self.installations.iter().find(|p| p.id == id).cloned() else {
+                self.workspace.remove = None;
+                return;
+            };
             let deleting = self.workspace.remove_files;
             let target = profiles::deletion_directory(&self.root, &id);
-            egui::Window::new(if deleting {"Eliminar instancia y archivos"}else{"Quitar instancia de la biblioteca"}).collapsible(false).resizable(false).default_width(500.).anchor(egui::Align2::CENTER_CENTER,Vec2::ZERO).show(ctx,|ui|{
-                if let Some(profile)=self.installations.iter().find(|p|p.id==id){ui.heading(&profile.name);}
-                if deleting{
-                    ui.label("Se borrarán permanentemente los mundos, mods, capturas, configuraciones y registros de esta carpeta:");
-                    match &target{Ok(path)=>{ui.add(egui::Label::new(RichText::new(crate::cleanup::display_path(path)).monospace().size(12.)).wrap());},Err(e)=>{ui.colored_label(Color32::from_rgb(245,110,120),e.to_string());ui.label("Puedes quitar el registro de la biblioteca. La eliminación completa requiere una carpeta independiente.");}}
-                    ui.checkbox(&mut self.workspace.remove_ack,"Entiendo que los archivos no se podrán recuperar desde Luma");
-                }else{ui.label("Los mundos y archivos permanecerán en disco.");}
-                ui.horizontal(|ui|{
-                    if ui.add_enabled(!self.busy&&(!deleting||(target.is_ok()&&self.workspace.remove_ack)),egui::Button::new(if deleting{"Eliminar completamente"}else{"Quitar de la biblioteca"})).clicked(){
+            let mut close = false;
+            let danger = Color32::from_rgb(255, 65, 110);
+            let response=egui::Modal::new(egui::Id::new("remove_instance_modal")).backdrop_color(if deleting{Color32::from_rgba_unmultiplied(34,0,8,180)}else{Color32::from_black_alpha(170)}).frame(egui::Frame::new().fill(palette().card).stroke(Stroke::new(1.0_f32,palette().border)).corner_radius(18).inner_margin(24.)).show(ctx,|ui|{
+                ui.set_width(450.);
+                ui.horizontal(|ui|{ui.label(RichText::new(if deleting{"Eliminar instancia"}else{"Quitar de la biblioteca"}).size(23.).strong());ui.with_layout(Layout::right_to_left(Align::Center),|ui|{if ui.button("×").clicked(){close=true;}});});
+                ui.add_space(14.);ui.separator();ui.add_space(14.);
+                egui::Frame::new().fill(if deleting{Color32::from_rgb(79,43,53)}else{Color32::from_rgb(34,65,54)}).stroke(Stroke::new(1.0_f32,if deleting{danger}else{MINT})).corner_radius(14).inner_margin(16.).show(ui,|ui|{ui.set_width(418.);ui.strong(if deleting{"Esta acción no se puede deshacer"}else{"Tus mundos y archivos se conservarán"});ui.add_space(6.);ui.label(if deleting{"Se eliminarán permanentemente los mundos, configuraciones, mods, capturas y demás archivos de esta instancia."}else{"Solo se quitará la instancia de la biblioteca de Luma. Sus archivos permanecerán en disco y podrás volver a importarla."});});
+                ui.add_space(20.);ui.strong("Instancia");
+                card().fill(palette().bg).inner_margin(12.).show(ui,|ui|{ui.set_width(426.);ui.horizontal(|ui|{let(rect,_)=ui.allocate_exact_size(Vec2::splat(48.),Sense::hover());self.paint_cover(ui,rect,&profile);ui.vertical(|ui|{ui.strong(&profile.name);ui.label(RichText::new(format!("{} {}",profile.loader.label(),profile.minecraft)).color(palette().muted));});});});
+                if deleting {
+                    ui.add_space(10.);
+                    match &target{Ok(path)=>{ui.add(egui::Label::new(RichText::new(crate::cleanup::display_path(path)).small().monospace().color(palette().muted)).wrap());},Err(e)=>{ui.colored_label(danger,e.to_string());}}
+                    ui.checkbox(&mut self.workspace.remove_ack,"Confirmo que quiero borrar sus archivos");
+                }
+                if self.is_running(&profile){ui.label("Detén esta instancia antes de quitarla o eliminarla.");}
+                ui.add_space(22.);
+                ui.with_layout(Layout::right_to_left(Align::Center),|ui|{
+                    let enabled=!self.busy&&!self.is_running(&profile)&&(!deleting||(target.is_ok()&&self.workspace.remove_ack));
+                    let button=egui::Button::new(RichText::new(if deleting{"Eliminar instancia"}else{"Quitar de la biblioteca"}).strong().color(Color32::from_rgb(18,25,22))).fill(if deleting{danger}else{MINT}).min_size(Vec2::new(170.,36.));
+                    if ui.add_enabled(enabled,button).clicked(){
                         let root=self.root.clone();let worker_id=id.clone();let confirmed=target.as_ref().ok().cloned();
-                        self.work(move|tx|{let list=if deleting {profiles::remove_completely(&root,&worker_id,&confirmed.ok_or_else(||anyhow::anyhow!("Carpeta inválida"))?)?}else{profiles::remove(&root,&worker_id)?};tx.send(Event::Profiles(list))?;tx.send(Event::InstanceRemoved(worker_id))?;tx.send(Event::Status(if deleting{"Instancia y archivos eliminados"}else{"Instancia retirada de la biblioteca"}.into()))?;Ok(())});
-                        self.workspace.deleting_instance=true;
-                        self.workspace.remove=None;self.workspace.remove_ack=false;self.page=Page::Profiles;
+                        self.work(move|tx|{let list=if deleting{profiles::remove_completely(&root,&worker_id,&confirmed.ok_or_else(||anyhow::anyhow!("Carpeta inválida"))?)?}else{profiles::remove(&root,&worker_id)?};tx.send(Event::Profiles(list))?;tx.send(Event::InstanceRemoved(worker_id))?;tx.send(Event::Status(if deleting{"Instancia y archivos eliminados"}else{"Instancia retirada; archivos conservados"}.into()))?;Ok(())});
+                        self.workspace.deleting_instance=true;self.workspace.remove=None;self.workspace.remove_ack=false;self.page=Page::Home;
                     }
-                    if ui.button("Cancelar").clicked(){self.workspace.remove=None;self.workspace.remove_ack=false;}
+                    if ui.add(egui::Button::new("Cancelar").min_size(Vec2::new(100.,36.))).clicked(){close=true;}
                 });
             });
+            if close || response.should_close() {
+                self.workspace.remove = None;
+                self.workspace.remove_ack = false;
+            }
         }
     }
-    pub(super) fn editor_loader_versions(&mut self, choices: Vec<String>) {
+    pub(super) fn editor_loader_versions(&mut self, choices: Vec<String>, stable: HashSet<String>) {
         self.workspace.loader_choices = choices;
+        self.workspace.stable_loaders = stable;
     }
+}
+// Register the row's background before its children. Adding click sense to a
+// Frame response after drawing its buttons puts the background over them.
+fn interactive_card<R>(
+    ui: &mut egui::Ui,
+    contents: impl FnOnce(&mut egui::Ui) -> R,
+) -> egui::InnerResponse<R> {
+    ui.scope_builder(egui::UiBuilder::new().sense(Sense::click()), |ui| {
+        card().inner_margin(12.).show(ui, contents).inner
+    })
 }
 fn runtime_editor(ui: &mut egui::Ui, r: &mut model::RuntimeOptions) {
     ui.label("Memoria máxima");
@@ -917,4 +1234,65 @@ fn switch_row(ui: &mut egui::Ui, value: &mut bool, label: &str) -> egui::Respons
             .inner
     })
     .inner
+}
+
+#[cfg(test)]
+mod interaction_tests {
+    use super::*;
+    #[test]
+    fn row_context_menu_does_not_cover_switch_play_or_overflow_menu() {
+        let ctx = egui::Context::default();
+        let mut enabled = false;
+        let mut played = false;
+        let mut overflow_open = false;
+        let mut rects = [Rect::NOTHING; 3];
+        let mut frame = |events: Vec<egui::Event>| {
+            let _ = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800., 600.))),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        let row = interactive_card(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                let toggle = switch(ui, &mut enabled);
+                                rects[0] = toggle.rect;
+                                let play = ui.button("Jugar");
+                                rects[1] = play.rect;
+                                played |= play.clicked();
+                                let menu = ui.menu_button("···", |ui| {
+                                    overflow_open = true;
+                                    ui.label("Acciones");
+                                });
+                                rects[2] = menu.response.rect;
+                            });
+                        });
+                        row.response.context_menu(|ui| {
+                            ui.label("Menú contextual");
+                        });
+                    });
+                },
+            );
+            rects
+        };
+        let rects = frame(vec![]);
+        for rect in rects {
+            let pos = rect.center();
+            frame(vec![egui::Event::PointerMoved(pos)]);
+            for pressed in [true, false] {
+                frame(vec![egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                }]);
+            }
+            frame(vec![]);
+        }
+        assert!(enabled, "el switch debe responder al clic izquierdo");
+        assert!(played, "Jugar debe responder al clic izquierdo");
+        assert!(overflow_open, "los tres puntos deben abrir su menú");
+    }
 }

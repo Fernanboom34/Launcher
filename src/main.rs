@@ -6,17 +6,36 @@ mod catalog;
 #[allow(dead_code)]
 mod cleanup;
 mod content;
+mod content_meta;
 mod distribution;
 mod engine;
+mod game_process;
+#[cfg(windows)]
+mod maintenance;
 mod model;
 mod net;
 mod oauth;
 mod platform;
 mod profiles;
+mod skins;
 mod ui;
 
 fn main() -> eframe::Result {
     let args: Vec<String> = std::env::args().collect();
+    #[cfg(windows)]
+    if args
+        .get(1)
+        .is_some_and(|arg| arg == "--manage-uninstall-data")
+    {
+        return maintenance::run();
+    }
+    if args.get(1).is_some_and(|arg| arg == "--content-browser") {
+        if let Err(error) = browser::child_main() {
+            eprintln!("{error:#}");
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
     if args.get(1).is_some_and(|arg| {
         [
             "--create-profile",
@@ -101,8 +120,8 @@ fn headless(args: &[String]) -> anyhow::Result<()> {
         while let Ok(event) = rx.recv() {
             match event {
                 model::Event::Status(text) => println!("{text}"),
-                model::Event::GameStarted => println!("Minecraft iniciado con perfil local"),
-                model::Event::GameExited(code) => println!("Minecraft terminó: {code:?}"),
+                model::Event::GameStarted(_) => println!("Minecraft iniciado con perfil local"),
+                model::Event::GameExited(_, code) => println!("Minecraft terminó: {code:?}"),
                 model::Event::Progress(n, total) if n.is_multiple_of(200) || n == total => {
                     println!("{n}/{total}")
                 }

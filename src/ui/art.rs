@@ -3,11 +3,10 @@ use super::*;
 #[derive(Clone, Copy)]
 pub(super) enum Glyph {
     Play,
-    Grid,
+    Stop,
+    Skin,
     Image,
-    Download,
     Settings,
-    Activity,
     Plus,
     Close,
     Star,
@@ -22,6 +21,9 @@ pub(super) fn glyph(p: &egui::Painter, rect: Rect, icon: Glyph, color: Color32) 
     let pt = |x: f32, y: f32| c + Vec2::new(x * r, y * r);
     let line = |a: (f32, f32), b: (f32, f32)| p.line_segment([pt(a.0, a.1), pt(b.0, b.1)], s);
     match icon {
+        Glyph::Stop => {
+            p.rect_filled(Rect::from_center_size(c, Vec2::splat(r * 1.3)), 1., color);
+        }
         Glyph::Play => {
             p.add(egui::Shape::convex_polygon(
                 vec![pt(-0.55, -0.85), pt(0.85, 0.), pt(-0.55, 0.85)],
@@ -40,23 +42,23 @@ pub(super) fn glyph(p: &egui::Painter, rect: Rect, icon: Glyph, color: Color32) 
             line((-0.8, 0.7), (-0.05, -0.1));
             line((-0.05, -0.1), (0.85, 0.7));
         }
-        Glyph::Grid => {
-            for (x, y) in [(-0.95, -0.95), (0.15, -0.95), (-0.95, 0.15), (0.15, 0.15)] {
-                p.rect_stroke(
-                    Rect::from_min_max(pt(x, y), pt(x + 0.75, y + 0.75)),
-                    2.0,
-                    s,
-                    egui::StrokeKind::Inside,
-                );
-            }
-        }
-        Glyph::Download => {
-            line((0., -0.95), (0., 0.4));
-            line((-0.5, -0.1), (0., 0.4));
-            line((0., 0.4), (0.5, -0.1));
-            line((-0.8, 0.4), (-0.8, 0.95));
-            line((-0.8, 0.95), (0.8, 0.95));
-            line((0.8, 0.95), (0.8, 0.4));
+        Glyph::Skin => {
+            p.add(egui::Shape::closed_line(
+                vec![
+                    pt(-0.35, -0.85),
+                    pt(-0.95, -0.45),
+                    pt(-0.65, 0.05),
+                    pt(-0.45, -0.1),
+                    pt(-0.45, 0.9),
+                    pt(0.45, 0.9),
+                    pt(0.45, -0.1),
+                    pt(0.65, 0.05),
+                    pt(0.95, -0.45),
+                    pt(0.35, -0.85),
+                    pt(0., -0.6),
+                ],
+                s,
+            ));
         }
         Glyph::Settings => {
             p.circle_stroke(c, r * 0.65, s);
@@ -66,13 +68,6 @@ pub(super) fn glyph(p: &egui::Painter, rect: Rect, icon: Glyph, color: Color32) 
                 let v = Vec2::angled(a);
                 p.line_segment([c + v * r * 0.65, c + v * r], s);
             }
-        }
-        Glyph::Activity => {
-            line((-1., 0.6), (-0.55, 0.6));
-            line((-0.55, 0.6), (-0.15, -0.85));
-            line((-0.15, -0.85), (0.25, 0.85));
-            line((0.25, 0.85), (0.65, -0.15));
-            line((0.65, -0.15), (1., -0.15));
         }
         Glyph::Plus => {
             line((-0.8, 0.), (0.8, 0.));

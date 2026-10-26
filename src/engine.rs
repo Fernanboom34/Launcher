@@ -892,13 +892,19 @@ pub fn launch(
     command
         .stdout(Stdio::from(log.try_clone()?))
         .stderr(Stdio::from(log));
-    let mut child = command.spawn().context("No se pudo iniciar Java")?;
-    tx.send(Event::GameStarted)?;
+    let child = command.spawn().context("No se pudo iniciar Java")?;
+    let child = crate::game_process::Managed::register(&game, child)?;
+    tx.send(Event::GameStarted(game.clone()))?;
     let status = child.wait()?;
-    tx.send(Event::GameExited(status.code()))?;
+    let stopped = child.was_stopped();
+    drop(child);
+    tx.send(Event::GameExited(
+        game.clone(),
+        if stopped { None } else { status.code() },
+    ))?;
     run_hook(&settings.runtime.after, &game)?;
     anyhow::ensure!(
-        status.success(),
+        stopped || status.success(),
         "Minecraft terminó con código {:?}. Revisa {}",
         status.code(),
         log_root.join("game-latest.log").display()

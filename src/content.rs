@@ -133,6 +133,28 @@ pub fn toggle(game: &Path, item: &Content) -> Result<()> {
     fs::rename(&item.path, target)?;
     Ok(())
 }
+pub fn bulk(
+    game: &Path,
+    paths: &std::collections::HashSet<PathBuf>,
+    enabled: Option<bool>,
+) -> Result<usize> {
+    let mut changed = 0;
+    for item in contents(game)
+        .into_iter()
+        .filter(|item| paths.contains(&item.path))
+    {
+        if let Some(enabled) = enabled {
+            if item.enabled != enabled {
+                toggle(game, &item)?;
+                changed += 1;
+            }
+        } else {
+            archive(game, &item.path)?;
+            changed += 1;
+        }
+    }
+    Ok(changed)
+}
 pub fn archive(game: &Path, path: &Path) -> Result<()> {
     let base = game.canonicalize()?;
     let from = path.canonicalize()?;
@@ -279,6 +301,24 @@ fn resource_packs(game: &Path) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn bulk_actions_set_a_state_instead_of_flipping_mixed_rows() {
+        let game = fixture();
+        fs::create_dir_all(game.join("mods")).unwrap();
+        fs::write(game.join("mods/a.jar"), b"a").unwrap();
+        fs::write(game.join("mods/b.jar.disabled"), b"b").unwrap();
+        let paths = contents(&game).into_iter().map(|i| i.path).collect();
+        assert_eq!(bulk(&game, &paths, Some(false)).unwrap(), 1);
+        assert!(contents(&game).iter().all(|i| !i.enabled));
+        let paths = contents(&game).into_iter().map(|i| i.path).collect();
+        assert_eq!(bulk(&game, &paths, Some(true)).unwrap(), 2);
+        assert!(contents(&game).iter().all(|i| i.enabled));
+        let paths = contents(&game).into_iter().map(|i| i.path).collect();
+        assert_eq!(bulk(&game, &paths, None).unwrap(), 2);
+        assert!(contents(&game).is_empty());
+        assert!(game.join(".luma/removed").is_dir());
+        crate::cleanup::delete_verified_directory(&game, &game.canonicalize().unwrap()).unwrap();
+    }
     fn fixture() -> PathBuf {
         let mut nonce = [0u8; 16];
         getrandom::getrandom(&mut nonce).unwrap();

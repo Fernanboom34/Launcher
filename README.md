@@ -1,5 +1,19 @@
 # Luma
 
+## Beta 0.8.0-beta.1-windows
+
+El selector de Minecraft muestra las versiones públicas estables y permite mostrar todas desde el desplegable. Fabric añade filtros de estables y builds, tanto al crear como al editar instancias. Inicio concentra la biblioteca; se retiran las páginas redundantes de biblioteca, versiones/descargas y actividad. Los registros del juego siguen dentro de cada instancia.
+
+La nueva página **Skins** guarda PNG de 64×64 o 64×32, permite importarlos o arrastrarlos, editar nombre/modelo/PNG, exportar y eliminar. Incluye vista previa estática con giro manual y modelos clásico/delgado. Las nueve skins predeterminadas se descargan desde los servidores de texturas de Minecraft; no se incluyen imágenes ni JAR en la distribución.
+
+Con Microsoft se puede cargar la apariencia actual, aplicar/restablecer la skin y elegir entre las capas que posee la cuenta; requiere sesión activa. Para cuentas locales, **Instalar mod y aplicar skin** descarga [CustomSkinLoader](https://modrinth.com/mod/customskinloader) y sus dependencias compatibles desde Modrinth en la instancia elegida, y configura el PNG local con copias de seguridad. Es necesario un cargador compatible; Vanilla muestra una indicación para cambiarlo desde la configuración de la instancia. La skin local se ve en ese cliente; otros jugadores no reciben automáticamente el PNG. Desactivar restaura un PNG previo si existía y conserva el mod. Ninguna operación de las pruebas cambia una cuenta Microsoft real.
+
+Esta rama integra los arreglos de interacción, el navegador en proceso separado y las descargas `blob:` de páginas HTTPS. El panel nativo de descargas permanece disponible para decisiones del navegador.
+
+Incluye un Setup basado en Inno Setup con elevación estándar de Windows. Instala esta beta en Program Files y ofrece instalar/actualizar o desinstalar, también para copias portables registradas y versiones anteriores a Inno, sin exigir instalar primero. Descarga y verifica un helper temporal que confirma el borrado opcional de datos con el usuario original y retira las copias registradas del launcher. Después se retira la instalación de Program Files si existe. Desde Aplicaciones de Windows el desinstalador nativo conserva los datos; abre el Setup para elegir su eliminación completa. El Setup descargado permanece en Descargas. Instalar y desinstalar desde el Setup requieren conexión para obtener los archivos verificados.
+
+Esta distribución es solo una pre-release de Windows; no modifica main ni se ofrece como actualización automática estable. El Setup 0.7.0 tuvo una detección de Defender en un equipo y no se reprodujo en la laptop del usuario; no es un diagnóstico de GitHub Actions. El cambio de instalador todavía requiere comparación con Defender activo. No se recomienda permitir amenazas ni restaurar cuarentena. Esta beta descarga su payload de su propio tag para que la prueba sea reproducible.
+
 Launcher nativo de **Minecraft Java Edition para Windows x64**, escrito en Rust con egui. Biblioteca de instancias, temas y acentos menta, con catálogo de contenido y navegador web integrado.
 
 ## Linux x64

@@ -240,6 +240,8 @@ pub struct Session {
 
 pub enum Event {
     Status(String),
+    SkinsChanged,
+    SkinAccount(String, crate::skins::AccountAppearance),
     Progress(usize, usize),
     Catalog(Manifest, bool),
     AuthLink(String),
@@ -248,13 +250,24 @@ pub enum Event {
     Profiles(Vec<GameProfile>),
     InstanceRemoved(String),
     ContentChanged(String),
+    ContentInfo(
+        String,
+        u64,
+        std::collections::HashMap<PathBuf, crate::content_meta::Info>,
+    ),
     ProfileCreated(Box<GameProfile>),
-    LoaderVersions(Loader, String, Vec<String>),
+    LoaderVersions(
+        Loader,
+        String,
+        Vec<String>,
+        std::collections::HashSet<String>,
+    ),
     UpdateAvailable(crate::distribution::Release),
     UpdateReady(PathBuf),
-    EditorLoaderVersions(Vec<String>),
-    GameStarted,
-    GameExited(Option<i32>),
+    EditorLoaderVersions(Vec<String>, std::collections::HashSet<String>),
+    GameStarted(PathBuf),
+    GameExited(PathBuf, Option<i32>),
+    LaunchFailed(u64, String),
     Done,
     Error(String),
 }

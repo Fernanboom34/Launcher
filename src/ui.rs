@@ -22,6 +22,8 @@ use std::{
 mod art;
 mod catalog_ui;
 mod library;
+mod skin_preview;
+mod skin_ui;
 mod theme;
 mod workspace;
 use theme::palette;
@@ -31,12 +33,10 @@ const MINT: Color32 = Color32::from_rgb(68, 221, 139);
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Page {
     Home,
-    Versions,
-    Profiles,
     Settings,
-    Activity,
     Instance,
     Screenshots,
+    Skins,
 }
 
 pub struct Launcher {
@@ -55,8 +55,6 @@ pub struct Launcher {
     auth_url: Option<String>,
     auth_cancel: Option<Arc<AtomicBool>>,
     activity: Vec<String>,
-    search: String,
-    category: usize,
     game_running: bool,
     cache: bool,
     official: Vec<model::Profile>,
@@ -71,15 +69,16 @@ pub struct Launcher {
     next_profile_scan: Instant,
     library: library::LibraryState,
     pending_launch: Option<String>,
-    running_installation: Option<String>,
+    launch_generation: u64,
+    running_games: std::collections::HashMap<PathBuf, (String, Instant)>,
     preview_started: Instant,
     preview_requested: bool,
     workspace: workspace::Workspace,
     catalog: catalog_ui::State,
     sessions: std::collections::HashMap<String, Session>,
-    game_started: Option<Instant>,
     update_release: Option<crate::distribution::Release>,
     update_staged: Option<PathBuf>,
+    skins: skin_ui::State,
 }
 
 impl Launcher {
@@ -167,11 +166,9 @@ impl Launcher {
             tx,
             rx,
             page: match std::env::var("LUMA_PREVIEW_PAGE").as_deref() {
-                Ok("versions") => Page::Versions,
-                Ok("profiles") | Ok("selected") => Page::Profiles,
                 Ok("settings") => Page::Settings,
-                Ok("activity") => Page::Activity,
                 Ok("screenshots") => Page::Screenshots,
+                Ok("skins") => Page::Skins,
                 _ => Page::Home,
             },
             busy: false,
@@ -181,8 +178,6 @@ impl Launcher {
             auth_url: None,
             auth_cancel: None,
             activity: Vec::new(),
-            search: String::new(),
-            category: 0,
             game_running: false,
             cache: false,
             official: auth::official_profiles(),
@@ -197,15 +192,16 @@ impl Launcher {
             next_profile_scan: Instant::now() + Duration::from_secs(10),
             library: library::LibraryState::default(),
             pending_launch: None,
-            running_installation: None,
+            launch_generation: 0,
+            running_games: Default::default(),
             preview_started: Instant::now(),
             preview_requested: false,
             workspace: Default::default(),
             catalog: Default::default(),
             sessions: Default::default(),
-            game_started: None,
             update_release: None,
             update_staged: None,
+            skins: Default::default(),
         };
         if std::env::var("LUMA_PREVIEW_PAGE").as_deref() == Ok("selected") {
             if let Some(profile) = app.installations.first() {
@@ -267,23 +263,36 @@ impl Launcher {
         }
         if matches!(
             std::env::var("LUMA_PREVIEW_PAGE").as_deref(),
-            Ok("instance" | "worlds" | "logs" | "instance-settings" | "delete" | "catalog")
+            Ok("instance"
+                | "worlds"
+                | "logs"
+                | "instance-settings"
+                | "delete"
+                | "detach"
+                | "catalog")
         ) {
             if let Some(p) = app.installations.first().cloned() {
                 app.open_instance(&p);
                 if std::env::var("LUMA_PREVIEW_PAGE").as_deref() == Ok("catalog") {
                     app.open_catalog(&p, crate::catalog::Kind::Mod, None);
                 }
-                if std::env::var("LUMA_PREVIEW_PAGE").as_deref() == Ok("delete") {
+                if matches!(
+                    std::env::var("LUMA_PREVIEW_PAGE").as_deref(),
+                    Ok("delete" | "detach")
+                ) {
                     app.workspace.remove = Some(p.id.clone());
-                    app.workspace.remove_files = true;
+                    app.workspace.remove_files =
+                        std::env::var("LUMA_PREVIEW_PAGE").as_deref() == Ok("delete");
                 }
                 app.workspace.tab = match std::env::var("LUMA_PREVIEW_PAGE").as_deref() {
                     Ok("worlds") => 2,
                     Ok("logs") => 3,
-                    Ok("instance-settings") => 4,
+                    Ok("instance-settings") => 0,
                     _ => 0,
                 };
+                if std::env::var("LUMA_PREVIEW_PAGE").as_deref() == Ok("instance-settings") {
+                    app.workspace.settings_open = true;
+                }
             }
         }
         if let Ok(section) = std::env::var("LUMA_PREVIEW_SECTION") {
@@ -297,6 +306,14 @@ impl Launcher {
         }
         if let Ok(theme) = std::env::var("LUMA_PREVIEW_THEME") {
             app.settings.appearance.theme = theme.parse::<usize>().unwrap_or(0).min(3);
+        }
+        if std::env::var_os("LUMA_PREVIEW").is_some()
+            && std::env::var_os("LUMA_PREVIEW_RUNNING").is_some()
+        {
+            if let Some(p) = app.active_installation().cloned() {
+                app.running_games.insert(p.game_dir, (p.id, Instant::now()));
+                app.game_running = true;
+            }
         }
         if std::env::var_os("LUMA_PREVIEW").is_none() && std::env::var_os("LUMA_DATA_DIR").is_none()
         {
@@ -425,30 +442,81 @@ impl Launcher {
         }
         settings.game_directory = installation.map(|p| p.game_dir);
         settings.quick_world = self.workspace.pending_world.take();
-        self.work(move |tx| {
-            let installation = engine::prepare(&root, &version, &settings, offline, &tx)?;
-            if let Some((profile, token)) = identity {
-                engine::launch(
-                    &root,
-                    &version,
-                    &settings,
-                    installation,
-                    &profile,
-                    &token,
-                    &tx,
-                )?;
-            } else {
-                tx.send(Event::Status(
-                    "Instalación completa · ya puedes jugar offline".into(),
-                ))?;
+        let launch_id = self
+            .pending_launch
+            .clone()
+            .unwrap_or_else(|| version.id.clone());
+        self.launch_generation += 1;
+        let generation = self.launch_generation;
+        if play {
+            self.pending_launch = Some(launch_id.clone());
+        }
+        self.busy = true;
+        self.error = None;
+        self.progress = None;
+        let tx = self.tx.clone();
+        std::thread::spawn(move || {
+            let result = (|| -> anyhow::Result<()> {
+                let installation = engine::prepare(&root, &version, &settings, offline, &tx)?;
+                if let Some((profile, token)) = identity {
+                    engine::launch(
+                        &root,
+                        &version,
+                        &settings,
+                        installation,
+                        &profile,
+                        &token,
+                        &tx,
+                    )?;
+                } else {
+                    tx.send(Event::Status(
+                        "Instalación completa · ya puedes jugar offline".into(),
+                    ))?;
+                }
+                Ok(())
+            })();
+            if let Err(error) = result {
+                let _ = tx.send(if play {
+                    Event::LaunchFailed(generation, format!("{error:#}"))
+                } else {
+                    Event::Error(format!("{error:#}"))
+                });
             }
-            Ok(())
+            if !play {
+                let _ = tx.send(Event::Done);
+            }
         });
     }
 
     fn events(&mut self) {
         while let Ok(event) = self.rx.try_recv() {
             match event {
+                Event::ContentInfo(id, generation, info) => {
+                    if self.settings.active_installation == id
+                        && self.workspace.metadata_generation == generation
+                    {
+                        self.workspace.content_info = info;
+                    }
+                }
+                Event::SkinsChanged => {
+                    self.skins.library = None;
+                    self.skins.textures.clear();
+                }
+                Event::SkinAccount(id, appearance) => {
+                    if self.settings.profile.as_ref().is_some_and(|p| p.id == id) {
+                        self.skins.capes = appearance.capes;
+                        self.skins.cape = self
+                            .skins
+                            .capes
+                            .iter()
+                            .find(|c| c.state == "ACTIVE")
+                            .map(|c| c.id.clone())
+                            .unwrap_or_default();
+                        self.skins.account_loaded = Some(id);
+                        self.skins.preview = None;
+                        self.skins.library = None;
+                    }
+                }
                 Event::Status(status) => {
                     self.activity.push(status.clone());
                     self.status = status;
@@ -531,58 +599,82 @@ impl Launcher {
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap_or_default()
                         .as_secs();
-                    self.page = Page::Profiles;
+                    self.page = Page::Home;
                     self.settings.active_installation = profile.id;
                     self.settings.selected = profile.version_id;
                     self.save_settings();
                 }
-                Event::LoaderVersions(loader, minecraft, versions) => {
+                Event::LoaderVersions(loader, minecraft, versions, stable) => {
                     if self.new_loader == loader && self.new_minecraft == minecraft {
-                        self.new_loader_version = versions.first().cloned().unwrap_or_default();
+                        self.new_loader_version = versions
+                            .iter()
+                            .find(|v| {
+                                loader != Loader::Fabric
+                                    || self.library.fabric_builds
+                                    || stable.contains(*v)
+                            })
+                            .cloned()
+                            .unwrap_or_default();
+                        self.library.stable_loaders = stable;
                         self.loader_versions = versions;
                         self.loader_query = Some((loader, minecraft));
                     }
                 }
-                Event::GameStarted => {
-                    self.game_started = Some(Instant::now());
-                    self.running_installation = self.pending_launch.clone();
-                    if let Some(id) = &self.running_installation {
-                        self.settings
-                            .instance_styles
-                            .entry(id.clone())
-                            .or_default()
-                            .last_played = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_secs();
-                        self.save_settings();
-                    }
+                Event::GameStarted(path) => {
+                    let id = self
+                        .pending_launch
+                        .take()
+                        .or_else(|| {
+                            self.installations
+                                .iter()
+                                .find(|p| p.game_dir == path)
+                                .map(|p| p.id.clone())
+                        })
+                        .unwrap_or_default();
+                    self.running_games
+                        .insert(path, (id.clone(), Instant::now()));
+                    self.settings
+                        .instance_styles
+                        .entry(id)
+                        .or_default()
+                        .last_played = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs();
+                    self.save_settings();
                     self.game_running = true;
-                    self.status = "Minecraft está en ejecución. ¡Disfruta tu mundo!".into();
+                    self.busy = false;
                     self.progress = None;
+                    self.status = "Minecraft está en ejecución. Puedes seguir usando Luma.".into();
                 }
-                Event::GameExited(code) => {
-                    if let (Some(start), Some(id)) =
-                        (self.game_started.take(), self.running_installation.as_ref())
-                    {
+                Event::GameExited(path, code) => {
+                    if let Some((id, start)) = self.running_games.remove(&path) {
                         self.settings
                             .instance_styles
-                            .entry(id.clone())
+                            .entry(id)
                             .or_default()
                             .play_seconds += start.elapsed().as_secs();
                         self.save_settings();
                     }
-                    self.running_installation = None;
-                    self.game_running = false;
+                    self.game_running = !self.running_games.is_empty();
                     self.status = format!(
                         "Minecraft se cerró · código {}",
                         code.map(|c| c.to_string())
-                            .unwrap_or_else(|| "desconocido".into())
+                            .unwrap_or_else(|| "detenido".into())
                     );
                     self.activity.push(self.status.clone());
                     if code != Some(0) {
-                        self.error = Some("Minecraft terminó con un error. Abre el registro del juego desde Actividad para revisar la causa.".into());
+                        self.status =
+                            "Instancia finalizada. Puedes consultar sus Registros.".into();
                     }
+                }
+                Event::LaunchFailed(generation, error) => {
+                    if self.pending_launch.is_some() && self.launch_generation == generation {
+                        self.pending_launch = None;
+                        self.busy = false;
+                        self.progress = None;
+                    }
+                    self.error = Some(error);
                 }
                 Event::Error(error) => {
                     self.workspace.deleting_instance = false;
@@ -592,7 +684,7 @@ impl Launcher {
                     self.auth_url = None;
                     self.status = "La operación no se completó".into();
                 }
-                Event::EditorLoaderVersions(v) => self.editor_loader_versions(v),
+                Event::EditorLoaderVersions(v, stable) => self.editor_loader_versions(v, stable),
                 Event::UpdateAvailable(release) => self.update_release = Some(release),
                 Event::UpdateReady(path) => self.update_staged = Some(path),
                 Event::Done => {
@@ -605,104 +697,6 @@ impl Launcher {
         }
         if self.activity.len() > 300 {
             self.activity.drain(..self.activity.len() - 300);
-        }
-    }
-
-    fn versions(&mut self, ui: &mut egui::Ui) {
-        title(
-            ui,
-            "Todos tus mundos.",
-            "Releases, snapshots y las primeras versiones de Minecraft.",
-        );
-        ui.horizontal(|ui| {
-            ui.add(
-                egui::TextEdit::singleline(&mut self.search)
-                    .hint_text("Buscar versión…")
-                    .desired_width(190.0),
-            );
-            egui::ComboBox::from_id_salt("filter")
-                .selected_text(
-                    ["Todas", "Releases", "Snapshots", "Históricas", "Instaladas"][self.category],
-                )
-                .show_ui(ui, |ui| {
-                    for (index, label) in
-                        ["Todas", "Releases", "Snapshots", "Históricas", "Instaladas"]
-                            .iter()
-                            .enumerate()
-                    {
-                        ui.selectable_value(&mut self.category, index, *label);
-                    }
-                });
-            if ui
-                .add_enabled(!self.busy, egui::Button::new("Actualizar"))
-                .clicked()
-            {
-                self.refresh();
-            }
-        });
-        ui.add_space(8.0);
-        let matches: Vec<Version> = self
-            .manifest
-            .versions
-            .iter()
-            .filter(|v| {
-                v.id.to_lowercase().contains(&self.search.to_lowercase())
-                    && match self.category {
-                        1 => v.kind == "release",
-                        2 => v.kind == "snapshot",
-                        3 => v.kind.starts_with("old_"),
-                        4 => self.installed.contains(&v.id),
-                        _ => true,
-                    }
-            })
-            .cloned()
-            .collect();
-        ui.label(
-            RichText::new(format!("{} versiones", matches.len()))
-                .size(12.0)
-                .color(palette().muted),
-        );
-        egui::ScrollArea::vertical()
-            .id_salt("versions_list")
-            .max_height(ui.available_height() - 75.0)
-            .show_rows(ui, 62.0, matches.len(), |ui, rows| {
-                for index in rows {
-                    let version = &matches[index];
-                    let installed = self.installed.contains(&version.id);
-                    card().inner_margin(12.0).show(ui, |ui| {
-                        ui.set_min_width(ui.available_width());
-                        ui.horizontal(|ui| {
-                            ui.label(RichText::new(&version.id).size(17.0).strong());
-                            ui.label(
-                                RichText::new(kind(&version.kind))
-                                    .size(11.0)
-                                    .color(palette().muted),
-                            );
-                            ui.label(
-                                RichText::new(version.release_time.get(..10).unwrap_or(""))
-                                    .size(11.0)
-                                    .color(palette().muted),
-                            );
-                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                if ui
-                                    .add_enabled(!self.busy, egui::Button::new("Crear instancia"))
-                                    .clicked()
-                                {
-                                    self.open_create();
-                                    self.new_minecraft = version.id.clone();
-                                    self.new_loader = Loader::Vanilla;
-                                    self.page = Page::Home;
-                                }
-                                if installed {
-                                    ui.label(RichText::new("Instalada").size(11.0).color(MINT));
-                                }
-                            });
-                        });
-                    });
-                }
-            });
-        if matches.is_empty() {
-            ui.label("No hay versiones que coincidan. Conéctate para descargar el catálogo.");
         }
     }
 
@@ -762,50 +756,6 @@ impl Launcher {
             self.error = Some(format!("No se pudo abrir {}: {error}", path.display()));
         }
     }
-
-    fn activity_page(&mut self, ui: &mut egui::Ui) {
-        title(
-            ui,
-            "Detrás de la aventura.",
-            "Descargas, instalaciones y estado del juego.",
-        );
-        ui.horizontal(|ui| {
-            if ui.button("Abrir registros").clicked() {
-                let path = self
-                    .active_installation()
-                    .map(|p| p.game_dir.join(".luma/logs"))
-                    .unwrap_or_else(|| self.root.join("logs"));
-                if let Err(e) = std::fs::create_dir_all(&path) {
-                    self.error = Some(e.to_string());
-                } else {
-                    self.open_path(path);
-                }
-            }
-            if ui.button("Limpiar actividad").clicked() {
-                self.activity.clear();
-            }
-        });
-        card().show(ui, |ui| {
-            egui::ScrollArea::vertical()
-                .stick_to_bottom(true)
-                .show(ui, |ui| {
-                    if self.activity.is_empty() {
-                        ui.label(
-                            RichText::new("Todo en calma. Aquí aparecerá la actividad.")
-                                .color(palette().muted),
-                        );
-                    }
-                    for line in &self.activity {
-                        ui.label(
-                            RichText::new(line)
-                                .monospace()
-                                .size(12.0)
-                                .color(palette().muted),
-                        );
-                    }
-                });
-        });
-    }
 }
 
 impl eframe::App for Launcher {
@@ -856,9 +806,14 @@ impl eframe::App for Launcher {
             && Instant::now() >= self.next_profile_scan
             && std::env::var_os("LUMA_PREVIEW").is_none()
         {
-            let previous_error = self.error.clone();
-            self.scan_profiles(None);
-            self.error = previous_error;
+            self.next_profile_scan = Instant::now() + Duration::from_secs(10);
+            let root = self.root.clone();
+            let tx = self.tx.clone();
+            std::thread::spawn(move || {
+                if let Ok(profiles) = profiles::discover(&root, None) {
+                    let _ = tx.send(Event::Profiles(profiles));
+                }
+            });
         }
         self.drive_loader_query(ctx);
         self.apply_appearance(ctx);
@@ -942,12 +897,10 @@ impl eframe::App for Launcher {
                     Page::Home => {
                         egui::ScrollArea::vertical().show(ui, |ui| self.home(ui));
                     }
-                    Page::Versions => self.versions(ui),
-                    Page::Profiles => self.profiles_page(ui),
                     Page::Settings => self.launcher_settings(ui),
                     Page::Instance => self.instance_page(ui),
                     Page::Screenshots => self.screenshots_page(ui),
-                    Page::Activity => self.activity_page(ui),
+                    Page::Skins => self.skins_page(ui),
                 }
             });
         if let Some(url) = self.auth_url.clone() {
@@ -1040,20 +993,4 @@ fn primary(label: &str) -> egui::Button<'_> {
     )
     .fill(MINT)
     .corner_radius(9.0)
-}
-
-fn title(ui: &mut egui::Ui, heading: &str, description: &str) {
-    ui.label(RichText::new(heading).size(29.0).strong());
-    ui.label(RichText::new(description).color(palette().muted));
-    ui.add_space(18.0);
-}
-
-fn kind(value: &str) -> &str {
-    match value {
-        "release" => "RELEASE",
-        "snapshot" => "SNAPSHOT",
-        "old_beta" => "BETA",
-        "old_alpha" => "ALPHA",
-        _ => value,
-    }
 }

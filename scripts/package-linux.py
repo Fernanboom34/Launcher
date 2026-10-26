@@ -13,18 +13,20 @@ import tempfile
 
 repo = Path(__file__).resolve().parent.parent
 binary = Path(sys.argv[1]).resolve()
-version = re.search(r'^version = "([0-9.]+)"', (repo / 'Cargo.toml').read_text(), re.M)[1]
+version = re.search(r'^version = "([^"]+)"', (repo / 'Cargo.toml').read_text(), re.M)[1]
+linux_version = version[:-8] if version.endswith('-windows') else version
+deb_version = linux_version.replace('-beta.', '~beta.')
 artifacts = repo / 'artifacts'
 artifacts.mkdir(exist_ok=True)
 symbols = subprocess.check_output(['objdump', '-T', str(binary)], text=True)
 # Weak imports have runtime fallbacks (e.g. Rust's optional pidfd_spawnp).
 strong_imports = '\n'.join(line for line in symbols.splitlines() if '*UND*' in line and 'w' not in line.split())
-versions = re.findall(r'GLIBC_([0-9.]+)', strong_imports)
+versions = re.findall(r'GLIBC_([^"]+)', strong_imports)
 glibc = max(versions, key=lambda s: tuple(map(int, s.split('.'))))
 header = binary.read_bytes()[:20]
 if header[:6] != b'\x7fELF\x02\x01' or int.from_bytes(header[18:20], 'little') != 62:
     sys.exit('El binario no es Linux x64.')
-stem = f'Luma-{version}-linux-x64'
+stem = f'Luma-{linux_version}-linux-x64'
 outputs = []
 with tempfile.TemporaryDirectory(prefix='luma-package-') as temporary:
     root = Path(temporary)
@@ -56,8 +58,8 @@ with tempfile.TemporaryDirectory(prefix='luma-package-') as temporary:
     shutil.copy2(repo / 'packaging/linux/luma-launcher.svg', deb / 'usr/share/icons/hicolor/scalable/apps/luma-launcher.svg')
     shutil.copy2(repo / 'docs/LINUX.md', deb / 'usr/share/doc/luma-launcher/README.md')
     dependencies = f'libc6 (>= {glibc}), libgcc-s1, libx11-6, libx11-xcb1, libxcb1, libxcursor1, libxi6, libxrandr2, libxkbcommon0, libxkbcommon-x11-0, libgl1, libegl1, libwayland-client0, libwayland-cursor0, libwayland-egl1, xdg-utils'
-    (deb / 'DEBIAN/control').write_text(f'Package: luma-launcher\nVersion: {version}\nArchitecture: amd64\nMaintainer: Luma contributors\nSection: games\nPriority: optional\nDepends: {dependencies}\nRecommends: xdg-desktop-portal, xdg-desktop-portal-gtk\nHomepage: https://github.com/Fernanboom34/Launcher\nDescription: Luma Minecraft Java Edition launcher\n Native Linux x64 launcher with isolated instances and Modrinth content.\n')
-    deb_path = artifacts / f'luma-launcher_{version}_amd64.deb'
+    (deb / 'DEBIAN/control').write_text(f'Package: luma-launcher\nVersion: {deb_version}\nArchitecture: amd64\nMaintainer: Luma contributors\nSection: games\nPriority: optional\nDepends: {dependencies}\nRecommends: xdg-desktop-portal, xdg-desktop-portal-gtk\nHomepage: https://github.com/Fernanboom34/Launcher\nDescription: Luma Minecraft Java Edition launcher\n Native Linux x64 launcher with isolated instances and Modrinth content.\n')
+    deb_path = artifacts / f'luma-launcher_{deb_version}_amd64.deb'
     deb.chmod(0o755)
     for path in deb.rglob('*'):
         if not path.is_symlink():

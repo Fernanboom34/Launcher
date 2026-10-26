@@ -291,7 +291,14 @@ fn discover_sources(
 }
 
 pub fn loader_versions(loader: Loader, minecraft: &str) -> Result<Vec<String>> {
+    Ok(loader_versions_with_stability(loader, minecraft)?.0)
+}
+pub fn loader_versions_with_stability(
+    loader: Loader,
+    minecraft: &str,
+) -> Result<(Vec<String>, HashSet<String>)> {
     model::safe_component(minecraft)?;
+    let mut stable = HashSet::new();
     let client = net::client()?;
     let mut versions = if loader == Loader::Vanilla {
         vec![]
@@ -310,7 +317,13 @@ pub fn loader_versions(loader: Loader, minecraft: &str) -> Result<Vec<String>> {
         list.as_array()
             .context("Fabric devolvió una lista inválida")?
             .iter()
-            .filter_map(|item| item["loader"]["version"].as_str().map(str::to_owned))
+            .filter_map(|item| {
+                let version = item["loader"]["version"].as_str()?.to_owned();
+                if item["loader"]["stable"].as_bool() == Some(true) {
+                    stable.insert(version.clone());
+                }
+                Some(version)
+            })
             .collect()
     } else {
         let (url, prefix) = if loader == Loader::Forge {
@@ -357,7 +370,7 @@ pub fn loader_versions(loader: Loader, minecraft: &str) -> Result<Vec<String>> {
         "{} no publica versiones compatibles con Minecraft {minecraft}.",
         loader.label()
     );
-    Ok(versions)
+    Ok((versions, stable))
 }
 
 fn zip_json(path: &Path, name: &str) -> Result<Value> {
@@ -740,8 +753,8 @@ pub fn cli(args: &[String]) -> Result<()> {
                 Event::Progress(n, total) if n.is_multiple_of(500) || n == total => {
                     println!("{n}/{total}")
                 }
-                Event::GameStarted => println!("Minecraft iniciado"),
-                Event::GameExited(code) => println!("Minecraft terminó: {code:?}"),
+                Event::GameStarted(_) => println!("Minecraft iniciado"),
+                Event::GameExited(_, code) => println!("Minecraft terminó: {code:?}"),
                 _ => (),
             }
         }
