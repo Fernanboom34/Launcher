@@ -1,0 +1,35 @@
+name: Adjuntar Linux verificado a beta 2
+on:
+  push:
+    branches: ['release/linux-beta2-assets']
+    paths: ['.github/workflows/attach-linux-beta2.yml']
+permissions:
+  contents: write
+  actions: read
+jobs:
+  attach:
+    runs-on: ubuntu-22.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: Fernanboom34/Launcher
+    steps:
+      - name: Validar origen y destino
+        run: |
+          set -euo pipefail
+          gh api repos/$GH_REPO/actions/runs/40344937567 > run.json
+          jq -e '.conclusion == "success" and .head_sha == "7be7dbf013c258975c9a2e9cafe092c5fb02e0e6"' run.json
+          gh api repos/$GH_REPO/releases/tags/v0.8.0-beta.2-windows > release.json
+          jq -e '.prerelease == true and .draft == false' release.json
+      - name: Descargar, verificar y adjuntar los assets Linux
+        run: |
+          set -euo pipefail
+          mkdir payload
+          gh run download 40344937567 --name Luma-linux-x64 --dir payload
+          cd payload
+          sha256sum -c SHA256SUMS-linux-x64.txt
+          file Luma-0.8.0-beta.2-linux-x64 | grep 'ELF 64-bit.*x86-64'
+          gh release upload v0.8.0-beta.2-windows \
+            Luma-0.8.0-beta.2-linux-x64 \
+            Luma-0.8.0-beta.2-linux-x64.tar.gz \
+            'luma-launcher_0.8.0~beta.2_amd64.deb' \
+            luma-release-linux-x64.json SHA256SUMS-linux-x64.txt
