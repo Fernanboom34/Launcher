@@ -17,7 +17,11 @@ parser.add_argument('--private-key', type=Path, required=True)
 args = parser.parse_args()
 manifest = json.loads(args.manifest.read_text())
 assert args.artifact.name == manifest['url'].split('/')[-1], 'El artefacto no corresponde a la URL'
-assert hashlib.file_digest(args.artifact.open('rb'), 'sha256').hexdigest() == manifest['sha256'], 'Hash del artefacto incorrecto'
+digest = hashlib.sha256()
+with args.artifact.open('rb') as artifact:
+    for chunk in iter(lambda: artifact.read(65536), b''):
+        digest.update(chunk)
+assert digest.hexdigest() == manifest['sha256'], 'Hash del artefacto incorrecto'
 payload = ('Luma update manifest v1\n' + manifest['version'] + '\n' + manifest['url'] + '\n' + manifest['sha256'] + '\n').encode()
 with tempfile.TemporaryDirectory(prefix='luma-sign-') as folder:
     source = Path(folder) / 'payload'
