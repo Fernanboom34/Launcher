@@ -62,7 +62,7 @@ try {
         $hash = (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash.ToLowerInvariant()
         "$hash  $([IO.Path]::GetFileName($_))"
     }
-    [IO.File]::WriteAllLines((Join-Path $output 'SHA256SUMS.txt'), $checksums, (New-Object System.Text.UTF8Encoding($false)))
+    [IO.File]::WriteAllText((Join-Path $output 'SHA256SUMS.txt'), (($checksums -join "`n") + "`n"), (New-Object System.Text.UTF8Encoding($false)))
     Write-Output 'Listo: artifacts\Luma-Setup.exe y artifacts\luma-release.json'
 }
 finally {

@@ -122,6 +122,7 @@ jobs:
       - name: Verificar sumas y publicar únicamente como beta
         run: |
           set -euo pipefail
+          python3 -c 'from pathlib import Path; p = Path("windows/SHA256SUMS.txt"); p.write_bytes(p.read_bytes().replace(b"\r\n", b"\n"))'
           (cd windows && sha256sum -c SHA256SUMS.txt)
           (cd linux && sha256sum -c SHA256SUMS-linux-x64.txt)
           gh release create v0.8.0-beta.3 --target "$GITHUB_SHA" --prerelease --latest=false --title 'Luma 0.8.0-beta.3 — Windows y Linux x64' --notes-file docs/BETA3.md \
