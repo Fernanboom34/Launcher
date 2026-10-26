@@ -1,0 +1,13 @@
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    target-branch: release/0.8.0-rc.1
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: release/0.8.0-rc.1
+    schedule:
+      interval: weekly

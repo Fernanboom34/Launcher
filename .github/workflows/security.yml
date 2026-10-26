@@ -1,0 +1,35 @@
+name: Seguridad de dependencias y CodeQL
+on:
+  push:
+    branches: [main, release/0.8.0-rc.1]
+  pull_request:
+  schedule:
+    - cron: '17 8 * * 1'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Auditoría RustSec
+        run: |
+          cargo install cargo-audit --locked --version 0.22.0
+          cargo audit --deny unsound
+  codeql:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: github/codeql-action/init@4bfa242aa49c5f7c6770b98670d354a7dfac05f8
+        with:
+          languages: rust
+          build-mode: none
+      - uses: github/codeql-action/analyze@4bfa242aa49c5f7c6770b98670d354a7dfac05f8

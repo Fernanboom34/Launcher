@@ -12,7 +12,7 @@ jobs:
     env:
       RUSTFLAGS: '-C target-feature=+crt-static'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - name: Preparar Rust y verificar Windows sin publicar
         shell: pwsh
         run: |
@@ -30,7 +30,7 @@ jobs:
   linux:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - name: Preparar dependencias de Linux
         run: |
           sudo apt-get update
@@ -38,13 +38,6 @@ jobs:
           rustup update stable --no-self-update
           rustup default stable
           rustup component add rustfmt clippy
-      - uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: linux-x64-${{ hashFiles('Cargo.lock') }}
       - name: Formato, Clippy y pruebas
         run: |
           cargo fmt --check
@@ -59,7 +52,7 @@ jobs:
           mkdir -p target/linux-ui
           xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 LUMA_DATA_DIR="$PWD/target/linux-ui" LUMA_PREVIEW="$PWD/artifacts/linux-home.png" timeout 30s target/release/luma-launcher
           test -s artifacts/linux-home.png
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: Luma-linux-x64
           path: |
