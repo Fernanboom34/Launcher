@@ -14,7 +14,7 @@ pub(super) struct LibraryState {
     pub(super) create_open: bool,
     cover_seed: u32,
     artwork: Option<PathBuf>,
-    cover_target: Option<String>,
+    pub(super) cover_target: Option<String>,
     all_mc_versions: bool,
     pub(super) stable_loaders: HashSet<String>,
     pub(super) fabric_builds: bool,
@@ -851,7 +851,7 @@ impl Launcher {
         if ui.button("Configuración").clicked() {
             ui.close_menu();
             self.open_instance(profile);
-            self.workspace.tab = 4;
+            self.workspace.settings_open = true;
         }
         if ui.button("Copiar ruta").clicked() {
             ui.ctx().copy_text(profile.game_dir.display().to_string());

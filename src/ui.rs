@@ -277,9 +277,12 @@ impl Launcher {
                 app.workspace.tab = match std::env::var("LUMA_PREVIEW_PAGE").as_deref() {
                     Ok("worlds") => 2,
                     Ok("logs") => 3,
-                    Ok("instance-settings") => 4,
+                    Ok("instance-settings") => 0,
                     _ => 0,
                 };
+                if std::env::var("LUMA_PREVIEW_PAGE").as_deref() == Ok("instance-settings") {
+                    app.workspace.settings_open = true;
+                }
             }
         }
         if let Ok(section) = std::env::var("LUMA_PREVIEW_SECTION") {
