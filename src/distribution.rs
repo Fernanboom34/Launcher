@@ -260,7 +260,7 @@ fn installation_script(
 ) -> Result<String> {
     anyhow::ensure!(folder.is_absolute(), "Ruta de instalación inválida");
     let setup_hash = format!("{:x}", Sha256::digest(fs::read(setup)?));
-    let script=format!("$folder={};$source={};$setup={};if((Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash -ne '{}'){{throw 'Descarga inválida'}};if((Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash -ne '{setup_hash}'){{throw 'Instalador inválido'}};New-Item -ItemType Directory -Path $folder -Force|Out-Null;Copy-Item -LiteralPath $source -Destination (Join-Path $folder 'Luma.exe') -Force;Copy-Item -LiteralPath $setup -Destination (Join-Path $folder 'Luma-Setup.exe') -Force",quote(&crate::cleanup::display_path(folder)),quote(&crate::cleanup::display_path(staged)),quote(&crate::cleanup::display_path(setup)),release.sha256);
+    let script = format!("{};$folder={};$app=$null;$installer=$null;try{{$app=Open-LumaVerifiedFile {} '{}';$installer=Open-LumaVerifiedFile {} '{}';New-Item -ItemType Directory -Path $folder -Force|Out-Null;Copy-LumaVerifiedStream $app (Join-Path $folder 'Luma.exe');Copy-LumaVerifiedStream $installer (Join-Path $folder 'Luma-Setup.exe')}}finally{{if($installer){{$installer.Dispose()}};if($app){{$app.Dispose()}}}}", include_str!("windows/locked-copy.ps1"), quote(&crate::cleanup::display_path(folder)), quote(&crate::cleanup::display_path(staged)), release.sha256, quote(&crate::cleanup::display_path(setup)), setup_hash);
     Ok(script)
 }
 #[cfg(windows)]
@@ -289,7 +289,7 @@ pub fn apply_update(staged: &Path) -> Result<()> {
     let exe = std::env::current_exe()?;
     let result = staged.with_extension("update-result.txt");
     let digest = format!("{:x}", Sha256::digest(fs::read(staged)?));
-    let replacement=format!("$ProgressPreference='SilentlyContinue';$ErrorActionPreference='Stop';Wait-Process -Id {} -ErrorAction SilentlyContinue;Start-Sleep -Milliseconds 500;$target={};$source={};$result={};$backup=$target+'.previous';try{{if((Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash -ne '{digest}'){{throw 'La actualización cambió antes de instalarse'}};Copy-Item -LiteralPath $target -Destination $backup -Force;Copy-Item -LiteralPath $source -Destination $target -Force;[IO.File]::WriteAllText($result,'OK')}}catch{{[IO.File]::WriteAllText($result,$_.Exception.Message);if(Test-Path -LiteralPath $backup){{Copy-Item -LiteralPath $backup -Destination $target -Force -ErrorAction SilentlyContinue}}}}",std::process::id(),quote(&exe.to_string_lossy()),quote(&staged.to_string_lossy()),quote(&result.to_string_lossy()));
+    let replacement=format!("{};$ProgressPreference='SilentlyContinue';$ErrorActionPreference='Stop';Wait-Process -Id {} -ErrorAction SilentlyContinue;Start-Sleep -Milliseconds 500;$target={};$source={};$result={};$backup=$target+'.previous';$locked=$null;try{{$locked=Open-LumaVerifiedFile $source '{digest}';Copy-Item -LiteralPath $target -Destination $backup -Force;Copy-LumaVerifiedStream $locked $target;[IO.File]::WriteAllText($result,'OK')}}catch{{[IO.File]::WriteAllText($result,$_.Exception.Message);if(Test-Path -LiteralPath $backup){{Copy-Item -LiteralPath $backup -Destination $target -Force -ErrorAction SilentlyContinue}}}}finally{{if($locked){{$locked.Dispose()}}}}",include_str!("windows/locked-copy.ps1"),std::process::id(),quote(&exe.to_string_lossy()),quote(&staged.to_string_lossy()),quote(&result.to_string_lossy()));
     let start=format!("Start-Process -FilePath {} -WorkingDirectory {} -ArgumentList ('--update-report \"'+{}+'\"')",quote(&exe.to_string_lossy()),quote(&exe.parent().context("Ruta inválida")?.to_string_lossy()),quote(&result.to_string_lossy()));
     if exe.parent().is_some_and(is_program_installation) {
         let encoded = encoded_script(&replacement);
@@ -316,6 +316,20 @@ pub fn install_dir() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(windows)]
+    #[test]
+    fn verified_handle_blocks_mutation_deletion_and_replacement() {
+        let root = std::env::temp_dir().join(format!("luma-lock-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let source = root.join("source.exe");
+        let output = root.join("output.exe");
+        fs::write(&source, b"verified payload").unwrap();
+        let digest = format!("{:x}", Sha256::digest(b"verified payload"));
+        let script = format!("{};$p={};$handle=Open-LumaVerifiedFile $p '{}';try{{$blocked=0;try{{[IO.File]::WriteAllText($p,'malicious')}}catch{{$blocked++}};try{{[IO.File]::Delete($p)}}catch{{$blocked++}};$other=$p+'.other';[IO.File]::WriteAllText($other,'replacement');try{{Move-Item -LiteralPath $other -Destination $p -Force -ErrorAction Stop}}catch{{$blocked++}};if($blocked -ne 3){{throw 'El archivo verificado pudo modificarse'}};Copy-LumaVerifiedStream $handle {}}}finally{{$handle.Dispose()}}",include_str!("windows/locked-copy.ps1"),quote(&source.to_string_lossy()),digest,quote(&output.to_string_lossy()));
+        ps_output(&script).unwrap();
+        assert_eq!(fs::read(output).unwrap(), b"verified payload");
+        fs::remove_dir_all(root).unwrap();
+    }
     #[cfg(windows)]
     #[test]
     fn installation_payload_verifies_hashes_and_removal_stays_in_its_folder() {
