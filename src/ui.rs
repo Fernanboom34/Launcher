@@ -1,3 +1,4 @@
+mod loss;
 use crate::{
     auth, engine,
     model::{
@@ -759,6 +760,9 @@ impl Launcher {
 }
 
 impl eframe::App for Launcher {
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        [0.; 4]
+    }
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Captura únicamente el framebuffer de Luma para verificar su diseño.
         if let Ok(path) = std::env::var("LUMA_PREVIEW") {
@@ -937,6 +941,7 @@ impl eframe::App for Launcher {
                     );
                 });
         }
+        loss::show(ctx, self.game_running);
         self.instance_windows(ctx);
         self.workspace_windows(ctx);
         self.catalog_window(ctx);
