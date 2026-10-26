@@ -1148,7 +1148,7 @@ if let Some(release)=self.update_release.clone(){ui.label(format!("Nueva versió
                     if ui.add_enabled(!self.busy&&!self.is_running(&p),egui::Button::new("+ Crear respaldo")).clicked(){let root=self.root.clone();let profile=p.clone();self.work(move|tx|{tx.send(Event::Profiles(profiles::duplicate(&root,&profile)?))?;Ok(())});}
                     ui.add_space(20.);ui.horizontal(|ui|{
                         if ui.button("Cancelar").clicked(){close=true;}
-                        if ui.add_enabled(!self.busy&&!self.is_running(&p),egui::Button::new(format!("Eliminar {} proyectos",paths.len())).fill(Color32::from_rgb(240,150,55))).clicked(){
+                        if ui.add_enabled(!self.busy&&!self.is_running(&p),egui::Button::new(RichText::new(format!("Eliminar {} {}",paths.len(),if paths.len()==1{"proyecto"}else{"proyectos"})).color(Color32::from_rgb(24,28,32))).fill(Color32::from_rgb(240,150,55))).clicked(){
                             let selected=paths.iter().cloned().collect();let result=content::bulk(&p.game_dir,&selected,None).map(|_|());self.content_action(result,&p);self.workspace.selected_content.clear();close=true;
                         }
                     });
