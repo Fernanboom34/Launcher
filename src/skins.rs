@@ -547,6 +547,55 @@ mod tests {
         crate::cleanup::delete_verified_directory(&root, &root.canonicalize().unwrap()).unwrap();
     }
     #[test]
+    fn asymmetric_skin_pixels_survive_import_and_game_export() {
+        let root = fixture();
+        for (height, slim) in [(64, false), (64, true), (32, false)] {
+            let pixels = image::RgbaImage::from_fn(64, height, |x, y| {
+                image::Rgba([(x * 3) as u8, (y * 3) as u8, (x ^ y) as u8, 255])
+            });
+            let mut png = Cursor::new(Vec::new());
+            pixels.write_to(&mut png, image::ImageFormat::Png).unwrap();
+            let expected = decode(png.get_ref()).unwrap();
+            if height == 32 {
+                for y in 0..12 {
+                    for x in 0..4 {
+                        assert_eq!(
+                            expected.get_pixel(20 + x, 52 + y),
+                            pixels.get_pixel(7 - x, 20 + y)
+                        );
+                        assert_eq!(
+                            expected.get_pixel(36 + x, 52 + y),
+                            pixels.get_pixel(47 - x, 20 + y)
+                        );
+                    }
+                }
+            } else {
+                assert_eq!(expected, pixels);
+            }
+            let mut library = Library::default();
+            let id = library
+                .import(&root, png.get_ref(), "Asymmetric", slim, false)
+                .unwrap();
+            let game = root.join(format!("game-{height}-{slim}"));
+            configure_local(&root, &library.skins[0], "Player", &game).unwrap();
+            let exported =
+                std::fs::read(game.join("CustomSkinLoader/LocalSkin/skins/Player.png")).unwrap();
+            assert_eq!(decode(&exported).unwrap(), expected);
+            assert_eq!(
+                exported,
+                std::fs::read(texture_path(&root, &id).unwrap()).unwrap()
+            );
+            let config: serde_json::Value =
+                model::read_json(&game.join("CustomSkinLoader/CustomSkinLoader.json")).unwrap();
+            assert_eq!(
+                config["loadlist"][0]["model"],
+                if slim { "slim" } else { "default" }
+            );
+        }
+        crate::cleanup::delete_verified_directory(&root, &root.canonicalize().unwrap()).unwrap();
+    }
+
+    #[test]
     fn local_skin_preserves_config_and_restores_the_previous_file() {
         let root = fixture();
         let game = root.join("game");
