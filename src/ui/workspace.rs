@@ -428,7 +428,7 @@ impl Launcher {
                 if empty {
                     if self.workspace.empty_mascot.is_none() {
                         if let Ok(image) = image::load_from_memory(include_bytes!(
-                            "../../assets/empty-content.jpg"
+                            "../../assets/empty-content.png"
                         )) {
                             let image = image.to_rgba8();
                             self.workspace.empty_mascot = Some(ui.ctx().load_texture(
