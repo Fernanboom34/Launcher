@@ -11,6 +11,7 @@ pub(super) struct Workspace {
     pub import_open: bool,
     pub remove: Option<String>,
     pub remove_files: bool,
+    delete_content: Option<Vec<PathBuf>>,
     pub deleting_instance: bool,
     remove_ack: bool,
     pub minimized: bool,
@@ -327,35 +328,35 @@ impl Launcher {
             self.empty_content(ui, self.workspace.items.is_empty());
             return;
         }
-        let selected = self.workspace.selected_content.len();
+        let content_rect = ui.available_rect_before_wrap();
         let width = ui.available_width();
         let project_width = ((width - 200.) * 0.53).max(140.);
         let version_width = (width - project_width - 200.).max(110.);
-        egui::Frame::new().fill(palette().card).stroke(Stroke::new(1.0_f32,palette().border)).corner_radius(16).inner_margin(0.).show(ui,|ui|{ui.spacing_mut().item_spacing.y=0.;
+        let table = egui::Frame::new().fill(palette().card).stroke(Stroke::new(1.0_f32,palette().border)).corner_radius(16).inner_margin(0.).show(ui,|ui|{ui.spacing_mut().item_spacing.y=0.;
             egui::Frame::new().fill(palette().panel).corner_radius(egui::CornerRadius{nw:15,ne:15,sw:0,se:0}).inner_margin(12.).show(ui,|ui|{ui.set_width(width-24.);ui.horizontal(|ui|{
                 let mut all=!items.is_empty() && items.iter().all(|i|self.workspace.selected_content.contains(&i.path));
                 if selection_box(ui,&mut all).on_hover_text("Seleccionar todos los proyectos visibles").changed(){if all{self.workspace.selected_content.extend(items.iter().map(|i|i.path.clone()));}else{self.workspace.selected_content.clear();}}
                 for (label,width) in [("Proyecto",project_width),("Versión",version_width)]{let(rect,_)=ui.allocate_exact_size(Vec2::new(width,22.),Sense::hover());ui.painter().text(rect.left_center(),egui::Align2::LEFT_CENTER,label,egui::FontId::proportional(14.),palette().text);}
                 ui.with_layout(Layout::right_to_left(Align::Center),|ui|{ui.label(RichText::new("Acciones").strong().color(palette().muted));});
             });});
-            egui::Frame::new().inner_margin(egui::Margin{left:0,right:0,top:0,bottom:0}).show(ui,|ui|{
-            egui::ScrollArea::vertical().id_salt("instance_content").max_height((ui.available_height()-if selected>0{84.}else{18.}).max(120.)).show(ui,|ui|{
+            egui::Frame::new().inner_margin(egui::Margin{left:1,right:1,top:0,bottom:1}).show(ui,|ui|{
+            egui::ScrollArea::vertical().id_salt("instance_content").max_height((ui.available_height()-16.).max(120.)).show(ui,|ui|{
                 ui.spacing_mut().item_spacing.y=0.;
                 if items.is_empty(){ui.add_space(24.);ui.label("No hay proyectos en esta vista. Añade contenido a la instancia.");ui.add_space(24.);}
                 for (row,item) in items.iter().enumerate(){
                     let info=self.workspace.content_info.get(&item.path).cloned().unwrap_or_else(||crate::content_meta::Info{title:item.name.clone(),..Default::default()});
                     let chosen=self.workspace.selected_content.contains(&item.path);
                     let response=ui.scope_builder(egui::UiBuilder::new().sense(Sense::click()),|ui|{
-                        egui::Frame::new().fill(if row % 2 == 0 {palette().card}else{palette().card.gamma_multiply(1.12)}).corner_radius(egui::CornerRadius{nw:0,ne:0,sw:if row+1==items.len(){15}else{0},se:if row+1==items.len(){15}else{0}}).inner_margin(egui::Margin{left:12,right:12,top:9,bottom:9}).show(ui,|ui|{ui.set_width(width-24.);ui.horizontal(|ui|{ui.set_height(40.);
+                        egui::Frame::new().fill(if row % 2 == 0 {palette().card}else{palette().card.gamma_multiply(1.12)}).corner_radius(egui::CornerRadius{nw:0,ne:0,sw:if row+1==items.len(){15}else{0},se:if row+1==items.len(){15}else{0}}).inner_margin(egui::Margin{left:12,right:12,top:9,bottom:9}).show(ui,|ui|{ui.set_width(width-24.);ui.horizontal(|ui|{ui.set_height(54.);
                             let mut checked=chosen;if selection_box(ui,&mut checked).changed(){if checked{self.workspace.selected_content.insert(item.path.clone());}else{self.workspace.selected_content.remove(&item.path);}}
-                            ui.allocate_ui_with_layout(Vec2::new(project_width,40.),Layout::left_to_right(Align::Center),|ui|{
+                            ui.allocate_ui_with_layout(Vec2::new(project_width,54.),Layout::left_to_right(Align::Center),|ui|{
                                 self.content_icon(ui,&info,&item.kind);
                                 ui.vertical(|ui|{ui.set_width((project_width-46.).max(80.));ui.add(egui::Label::new(RichText::new(&info.title).strong()).truncate());ui.add(egui::Label::new(RichText::new(if info.author.is_empty(){&item.kind}else{&info.author}).small().color(palette().muted)).truncate());});
                             });
-                            ui.allocate_ui_with_layout(Vec2::new(version_width,40.),Layout::top_down(Align::Min),|ui|{ui.add(egui::Label::new(RichText::new(if info.version.is_empty(){"—"}else{&info.version}).strong()).truncate());ui.add(egui::Label::new(RichText::new(&item.name).color(palette().muted)).truncate());});
+                            ui.allocate_ui_with_layout(Vec2::new(version_width,54.),Layout::top_down(Align::Min),|ui|{ui.add(egui::Label::new(RichText::new(if info.version.is_empty(){"—"}else{&info.version}).strong()).truncate());ui.add(egui::Label::new(RichText::new(&item.name).color(palette().muted)).truncate());});
                             ui.with_layout(Layout::right_to_left(Align::Center),|ui|{
                                 ui.menu_button("···",|ui|self.content_menu(ui,p,item));
-                                if ui.add_enabled(!self.busy,egui::Button::new("🗑")).on_hover_text("Quitar proyecto; se conserva en .luma/removed").clicked(){self.content_action(content::archive(&p.game_dir,&item.path),p);}
+                                if ui.add_enabled(!self.busy,egui::Button::new("🗑")).on_hover_text("Eliminar proyecto permanentemente").clicked(){self.workspace.delete_content=Some(vec![item.path.clone()]);}
                                 let mut enabled=item.enabled;if ui.add_enabled_ui(!self.busy,|ui|switch(ui,&mut enabled)).inner.changed(){self.content_action(content::toggle(&p.game_dir,item),p);}
                             });
                         });});
@@ -366,48 +367,58 @@ impl Launcher {
             });
             });
         });
+        round_table_bottom(ui, table.response.rect);
         if !self.workspace.selected_content.is_empty() {
-            ui.add_space(10.);
-            egui::Frame::new()
-                .fill(palette().panel)
-                .stroke(Stroke::new(1.0_f32, palette().border))
-                .corner_radius(16)
-                .inner_margin(12.)
-                .show(ui, |ui| {
-                    ui.horizontal_wrapped(|ui| {
-                        ui.strong(format!(
-                            "{} proyectos seleccionados",
-                            self.workspace.selected_content.len()
-                        ));
-                        if ui.button("Limpiar selección").clicked() {
-                            self.workspace.selected_content.clear();
-                        }
-                        ui.separator();
-                        if ui
-                            .add_enabled(!self.busy, egui::Button::new("Activar"))
-                            .clicked()
-                        {
-                            self.bulk_content(p, Some(true));
-                        }
-                        if ui
-                            .add_enabled(!self.busy, egui::Button::new("Desactivar"))
-                            .clicked()
-                        {
-                            self.bulk_content(p, Some(false));
-                        }
-                        if ui
-                            .add_enabled(
-                                !self.busy,
-                                egui::Button::new(
-                                    RichText::new("Quitar").color(Color32::from_rgb(255, 90, 115)),
-                                ),
-                            )
-                            .on_hover_text("Mueve los archivos seleccionados a .luma/removed")
-                            .clicked()
-                        {
-                            self.bulk_content(p, None);
-                        }
-                    });
+            egui::Area::new(egui::Id::new("content_actions"))
+                .order(egui::Order::Foreground)
+                .pivot(egui::Align2::CENTER_BOTTOM)
+                .fixed_pos(content_rect.center_bottom() - Vec2::new(0., 16.))
+                .show(ui.ctx(), |ui| {
+                    ui.set_max_width(620.);
+                    egui::Frame::new()
+                        .fill(palette().panel)
+                        .stroke(Stroke::new(1.0_f32, palette().border))
+                        .corner_radius(16)
+                        .inner_margin(12.)
+                        .show(ui, |ui| {
+                            ui.horizontal_wrapped(|ui| {
+                                ui.strong(format!(
+                                    "{} proyectos seleccionados",
+                                    self.workspace.selected_content.len()
+                                ));
+                                if ui.button("×").on_hover_text("Limpiar selección").clicked() {
+                                    self.workspace.selected_content.clear();
+                                }
+                                ui.separator();
+                                if ui
+                                    .add_enabled(!self.busy, egui::Button::new("Activar"))
+                                    .clicked()
+                                {
+                                    self.bulk_content(p, Some(true));
+                                }
+                                if ui
+                                    .add_enabled(!self.busy, egui::Button::new("Desactivar"))
+                                    .clicked()
+                                {
+                                    self.bulk_content(p, Some(false));
+                                }
+                                if ui
+                                    .add_enabled(
+                                        !self.busy,
+                                        egui::Button::new(
+                                            RichText::new("Quitar")
+                                                .color(Color32::from_rgb(255, 90, 115)),
+                                        ),
+                                    )
+                                    .on_hover_text(
+                                        "Eliminar permanentemente los proyectos seleccionados",
+                                    )
+                                    .clicked()
+                                {
+                                    self.bulk_content(p, None);
+                                }
+                            });
+                        });
                 });
         }
     }
@@ -517,6 +528,11 @@ impl Launcher {
         );
     }
     fn bulk_content(&mut self, p: &GameProfile, enabled: Option<bool>) {
+        if enabled.is_none() {
+            self.workspace.delete_content =
+                Some(self.workspace.selected_content.iter().cloned().collect());
+            return;
+        }
         let result =
             content::bulk(&p.game_dir, &self.workspace.selected_content, enabled).map(|_| ());
         self.workspace.selected_content.clear();
@@ -555,7 +571,7 @@ impl Launcher {
             .add_enabled(!self.busy, egui::Button::new("Quitar contenido"))
             .clicked()
         {
-            self.content_action(content::archive(&p.game_dir, &item.path), p);
+            self.workspace.delete_content = Some(vec![item.path.clone()]);
             ui.close_menu();
         }
     }
@@ -864,7 +880,7 @@ impl Launcher {
             .runtime
             .clone()
             .unwrap_or_else(|| profiles::default_runtime(&self.root));
-        ui.horizontal_top(|ui|{ui.vertical(|ui|{ui.set_width(180.);ui.label(RichText::new("INSTANCIA").small().color(palette().muted));for(i,label)in ["General","Instalación","Java y memoria","Ventana","Comandos de inicio"].iter().enumerate(){if i==2{ui.add_space(18.);ui.label(RichText::new("JUEGO").small().color(palette().muted));}ui.add_sized([180.,36.],egui::Button::new(*label).selected(self.workspace.settings_tab==i)).clicked().then(||self.workspace.settings_tab=i);}});ui.separator();
+        ui.horizontal_top(|ui|{ui.vertical(|ui|{ui.set_width(180.);ui.label(RichText::new("INSTANCIA").small().color(palette().muted));for(i,label)in ["General","Instalación","Java y memoria","Ventana","Comandos de inicio"].iter().enumerate(){if i==2{ui.add_space(18.);ui.label(RichText::new("JUEGO").small().color(palette().muted));}ui.add_sized([180.,36.],egui::Button::new(*label).corner_radius(8).fill(if self.workspace.settings_tab==i{palette().soft}else{Color32::TRANSPARENT}).stroke(Stroke::NONE)).clicked().then(||self.workspace.settings_tab=i);}});ui.separator();
             egui::ScrollArea::vertical().id_salt("instance_settings").show(ui,|ui|{ui.with_layout(Layout::top_down(Align::Min),|ui|{ui.set_width(ui.available_width());match self.workspace.settings_tab{
                 0=>{
                     ui.horizontal_top(|ui|{ui.vertical(|ui|{ui.label(RichText::new("Nombre").strong());ui.add(egui::TextEdit::singleline(&mut edit.name).desired_width((ui.available_width()-120.).max(180.)));ui.label(RichText::new(crate::cleanup::display_path(&p.game_dir)).small().color(palette().muted));if ui.button("Abrir carpeta").clicked(){self.instance_folder(p,false);}});ui.vertical(|ui|{ui.label(RichText::new("Ícono").strong());let(rect,_)=ui.allocate_exact_size(Vec2::splat(92.),Sense::hover());self.paint_cover(ui,rect,p);if ui.add_sized([104.,32.],egui::Button::new("Personalizar").wrap_mode(egui::TextWrapMode::Extend)).clicked(){self.library.cover_target=Some(p.id.clone());self.workspace.settings_open=false;}});});
@@ -1119,6 +1135,29 @@ if let Some(release)=self.update_release.clone(){ui.label(format!("Nueva versió
             });
     }
     pub(super) fn workspace_windows(&mut self, ctx: &egui::Context) {
+        if let Some(paths) = self.workspace.delete_content.clone() {
+            if let Some(p) = self.active_installation().cloned() {
+                let mut close = false;
+                egui::Modal::new(egui::Id::new("delete_content_confirm")).frame(egui::Frame::new().fill(palette().panel).corner_radius(18).stroke(Stroke::new(1.0_f32,palette().border)).inner_margin(24.)).show(ctx,|ui|{
+                    ui.set_width(440.);ui.heading("Eliminar proyectos");ui.add_space(16.);
+                    egui::Frame::new().fill(Color32::from_rgb(80,57,35)).corner_radius(12).inner_margin(16.).show(ui,|ui|{
+                        ui.strong("⚠ Advertencia de eliminación");
+                        ui.label("Eliminar un mod puede afectar permanentemente tu mundo y provocar que falte contenido o surjan problemas al volver a cargarlo.");
+                    });
+                    ui.add_space(12.);ui.label("Recomendamos crear un respaldo completo de la instancia antes de continuar. La eliminación es permanente.");
+                    if ui.add_enabled(!self.busy&&!self.is_running(&p),egui::Button::new("+ Crear respaldo")).clicked(){let root=self.root.clone();let profile=p.clone();self.work(move|tx|{tx.send(Event::Profiles(profiles::duplicate(&root,&profile)?))?;Ok(())});}
+                    ui.add_space(20.);ui.horizontal(|ui|{
+                        if ui.button("Cancelar").clicked(){close=true;}
+                        if ui.add_enabled(!self.busy&&!self.is_running(&p),egui::Button::new(format!("Eliminar {} proyectos",paths.len())).fill(Color32::from_rgb(240,150,55))).clicked(){
+                            let selected=paths.iter().cloned().collect();let result=content::bulk(&p.game_dir,&selected,None).map(|_|());self.content_action(result,&p);self.workspace.selected_content.clear();close=true;
+                        }
+                    });
+                });
+                if close {
+                    self.workspace.delete_content = None;
+                }
+            }
+        }
         if self.workspace.settings_open {
             if let Some(profile) = self.active_installation().cloned() {
                 let mut close = false;
@@ -1136,6 +1175,12 @@ if let Some(release)=self.update_release.clone(){ui.label(format!("Nueva versió
                         ui.set_width(width);
                         egui::Frame::new()
                             .fill(palette().panel)
+                            .corner_radius(egui::CornerRadius {
+                                nw: 18,
+                                ne: 18,
+                                sw: 0,
+                                se: 0,
+                            })
                             .inner_margin(22.)
                             .show(ui, |ui| {
                                 ui.set_width(width - 44.);
@@ -1227,19 +1272,40 @@ fn interactive_card<R>(
     })
 }
 fn runtime_editor(ui: &mut egui::Ui, r: &mut model::RuntimeOptions) {
-    ui.label("Memoria máxima");
+    ui.label(RichText::new("Asignación de memoria").strong());
+    ui.spacing_mut().slider_width = (ui.available_width() - 170.).clamp(180., 480.);
+    ui.visuals_mut().widgets.inactive.bg_fill = Color32::from_gray(75);
+    ui.visuals_mut().widgets.inactive.weak_bg_fill = Color32::from_gray(75);
+    ui.visuals_mut().selection.bg_fill = MINT;
     ui.horizontal(|ui| {
         ui.add(
             egui::Slider::new(&mut r.memory_mb, 512..=32768)
                 .step_by(256.)
+                .trailing_fill(true)
+                .show_value(false)
+                .handle_shape(egui::style::HandleShape::Rect { aspect_ratio: 0.35 })
                 .suffix(" MB"),
         );
-        ui.add(egui::DragValue::new(&mut r.memory_mb).range(512..=32768));
+        ui.add(
+            egui::DragValue::new(&mut r.memory_mb)
+                .range(512..=32768)
+                .suffix(" MB"),
+        );
     });
-    ui.add_space(12.);
-    ui.label("Instalación de Java personalizada");
+    ui.visuals_mut().widgets.inactive.bg_fill = palette().card;
+    ui.visuals_mut().widgets.inactive.weak_bg_fill = palette().card;
+    ui.horizontal(|ui| {
+        ui.small("512 MB");
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            ui.small("32 GB");
+        });
+    });
+    ui.add_space(18.);
+    ui.label(RichText::new("Instalación de Java personalizada").strong());
     ui.add(
         egui::TextEdit::singleline(&mut r.java)
+            .background_color(palette().bg)
+            .margin(Vec2::splat(12.))
             .hint_text("Automático: descargar Java adecuado")
             .desired_width(440.),
     );
@@ -1263,9 +1329,21 @@ fn runtime_editor(ui: &mut egui::Ui, r: &mut model::RuntimeOptions) {
     });
     ui.add_space(12.);
     ui.label("Argumentos Java personalizados");
-    ui.text_edit_multiline(&mut r.jvm_args);
+    ui.add(
+        egui::TextEdit::multiline(&mut r.jvm_args)
+            .desired_width(ui.available_width())
+            .desired_rows(3)
+            .background_color(palette().bg)
+            .margin(Vec2::splat(12.)),
+    );
     ui.label("Variables de entorno · NOMBRE=valor por línea");
-    ui.text_edit_multiline(&mut r.environment);
+    ui.add(
+        egui::TextEdit::multiline(&mut r.environment)
+            .desired_width(ui.available_width())
+            .desired_rows(3)
+            .background_color(palette().bg)
+            .margin(Vec2::splat(12.)),
+    );
 }
 fn window_editor(ui: &mut egui::Ui, r: &mut model::RuntimeOptions) {
     ui.horizontal(|ui| {
@@ -1375,6 +1453,42 @@ fn selection_box(ui: &mut egui::Ui, value: &mut bool) -> egui::Response {
         )
     });
     response
+}
+
+fn round_table_bottom(ui: &egui::Ui, rect: Rect) {
+    let radius = 16.;
+    for right in [false, true] {
+        let corner = Pos2::new(
+            if right { rect.right() } else { rect.left() },
+            rect.bottom(),
+        );
+        let center = corner + Vec2::new(if right { -radius } else { radius }, -radius);
+        let mut mesh = egui::Mesh::default();
+        mesh.colored_vertex(corner, palette().bg);
+        for i in 0..=16 {
+            let angle = if right {
+                i as f32 / 16. * std::f32::consts::FRAC_PI_2
+            } else {
+                std::f32::consts::FRAC_PI_2 + i as f32 / 16. * std::f32::consts::FRAC_PI_2
+            };
+            mesh.colored_vertex(center + Vec2::angled(angle) * radius, palette().bg);
+            if i > 0 {
+                mesh.add_triangle(0, i, i + 1);
+            }
+        }
+        ui.painter().add(egui::Shape::mesh(mesh));
+    }
+    ui.painter().rect_filled(
+        Rect::from_min_size(rect.left_bottom(), Vec2::new(rect.width(), 10.)),
+        0.,
+        palette().bg,
+    );
+    ui.painter().rect_stroke(
+        rect,
+        16.,
+        Stroke::new(1.0_f32, palette().border),
+        egui::StrokeKind::Inside,
+    );
 }
 
 #[cfg(test)]

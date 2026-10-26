@@ -358,7 +358,7 @@ impl Default for Appearance {
         Self {
             theme: 0,
             advanced: true,
-            decorations: true,
+            decorations: false,
         }
     }
 }

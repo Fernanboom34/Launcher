@@ -75,7 +75,9 @@ fn main() -> eframe::Result {
                     [1360.0, 880.0]
                 })
                 .with_min_inner_size([1060.0, 720.0])
-                .with_icon(icon()),
+                .with_icon(icon())
+                .with_decorations(false)
+                .with_resizable(true),
             ..Default::default()
         },
         Box::new(|cc| Ok(Box::new(ui::Launcher::new(cc)))),
@@ -83,27 +85,13 @@ fn main() -> eframe::Result {
 }
 
 fn icon() -> eframe::egui::IconData {
-    let mut rgba = vec![0; 64 * 64 * 4];
-    for y in 0..64usize {
-        for x in 0..64usize {
-            let corner_x = if x < 12 { 12 - x } else { x.saturating_sub(51) };
-            let corner_y = if y < 12 { 12 - y } else { y.saturating_sub(51) };
-            if corner_x * corner_x + corner_y * corner_y <= 144 {
-                let color = if (18..27).contains(&x) && (14..49).contains(&y)
-                    || (18..47).contains(&x) && (40..49).contains(&y)
-                {
-                    [13, 17, 24, 255]
-                } else {
-                    [129, 232, 181, 255]
-                };
-                rgba[(y * 64 + x) * 4..(y * 64 + x + 1) * 4].copy_from_slice(&color);
-            }
-        }
-    }
+    let image = image::load_from_memory(include_bytes!("../assets/luma-moon.png"))
+        .expect("embedded icon")
+        .to_rgba8();
     eframe::egui::IconData {
-        rgba,
-        width: 64,
-        height: 64,
+        width: image.width(),
+        height: image.height(),
+        rgba: image.into_raw(),
     }
 }
 

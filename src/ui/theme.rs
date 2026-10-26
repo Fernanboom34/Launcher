@@ -22,7 +22,7 @@ fn colors(theme: usize) -> Palette {
             0x000000, 0x080a0c, 0x111416, 0x1e2428, 0x30383f, 0xf2f4f6, 0x9aa4b2,
         ],
         _ => [
-            0x16181c, 0x202328, 0x272a30, 0x31353c, 0x393d45, 0xf2f4f6, 0x9aa4b2,
+            0x0c1117, 0x121b22, 0x18232b, 0x24343d, 0x2c4048, 0xe6edf3, 0x9aadb8,
         ],
     };
     Palette {
@@ -36,7 +36,7 @@ fn colors(theme: usize) -> Palette {
         soft: if theme == 1 {
             rgb(0xe0f2e7)
         } else {
-            rgb(0x20352b)
+            rgb(0x213b35)
         },
     }
 }

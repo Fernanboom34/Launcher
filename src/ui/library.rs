@@ -46,13 +46,12 @@ impl Launcher {
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     let (logo, _) = ui.allocate_exact_size(Vec2::splat(29.), Sense::hover());
-                    ui.painter().rect_filled(logo, 8., MINT);
-                    ui.painter().text(
-                        logo.center(),
-                        egui::Align2::CENTER_CENTER,
-                        "L",
-                        FontId::proportional(24.),
-                        Color32::from_rgb(18, 30, 24),
+                    ui.painter()
+                        .circle_filled(logo.center(), logo.width() / 2., MINT);
+                    ui.painter().circle_filled(
+                        logo.center() + Vec2::new(7., -3.),
+                        logo.width() / 2.,
+                        palette().panel,
                     );
                     ui.label(RichText::new("luma").size(25.).strong());
                     if (self.settings.behavior.sidebar_button

@@ -149,30 +149,28 @@ pub fn bulk(
                 changed += 1;
             }
         } else {
-            archive(game, &item.path)?;
+            remove_permanently(game, &item.path)?;
             changed += 1;
         }
     }
     Ok(changed)
 }
-pub fn archive(game: &Path, path: &Path) -> Result<()> {
+pub fn remove_permanently(game: &Path, path: &Path) -> Result<()> {
     let base = game.canonicalize()?;
     let from = path.canonicalize()?;
     anyhow::ensure!(
         from.starts_with(&base) && from != base,
         "Archivo fuera de la instancia"
     );
-    let folder = base.join(".luma/removed").join(format!(
-        "{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)?
-            .as_nanos()
-    ));
-    fs::create_dir_all(&folder)?;
-    fs::rename(
-        &from,
-        folder.join(from.file_name().context("Archivo inválido")?),
-    )?;
+    anyhow::ensure!(
+        contents(game).iter().any(|item| item.path == path),
+        "Solo se puede eliminar contenido de esta instancia"
+    );
+    if from.is_dir() {
+        crate::cleanup::delete_verified_directory(&from, &from)?;
+    } else {
+        fs::remove_file(from)?;
+    }
     Ok(())
 }
 fn dirs(path: &Path) -> Vec<PathBuf> {
@@ -316,7 +314,7 @@ mod tests {
         let paths = contents(&game).into_iter().map(|i| i.path).collect();
         assert_eq!(bulk(&game, &paths, None).unwrap(), 2);
         assert!(contents(&game).is_empty());
-        assert!(game.join(".luma/removed").is_dir());
+        assert!(!game.join(".luma/removed").exists());
         crate::cleanup::delete_verified_directory(&game, &game.canonicalize().unwrap()).unwrap();
     }
     fn fixture() -> PathBuf {
@@ -377,7 +375,7 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
     #[test]
-    fn directory_datapacks_and_archive_stay_recoverable() {
+    fn directory_packs_toggle_and_permanent_deletion_are_scoped() {
         let root = fixture();
         let path = root.join("saves/world/datapacks/pack");
         fs::create_dir_all(&path).unwrap();
@@ -389,10 +387,10 @@ mod tests {
         assert!(!item.enabled);
         toggle(&root, &item).unwrap();
         assert!(path.join("pack.mcmeta").is_file());
-        archive(&root, &path).unwrap();
+        remove_permanently(&root, &path).unwrap();
         assert!(!path.exists());
-        assert!(root.join(".luma/removed").is_dir());
-        assert!(archive(&root, root.parent().unwrap()).is_err());
+        assert!(!root.join(".luma/removed").exists());
+        assert!(remove_permanently(&root, root.parent().unwrap()).is_err());
         fs::remove_dir_all(root).unwrap();
     }
     #[test]

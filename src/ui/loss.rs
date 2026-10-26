@@ -1,5 +1,4 @@
-use eframe::egui::{self, Color32, Pos2, Rect, Stroke, Vec2};
-use std::time::Duration;
+use eframe::egui::{self, Color32, Rect, Stroke, Vec2};
 
 fn paint(painter: &egui::Painter, rect: Rect) {
     painter.rect_filled(rect, 5., Color32::from_black_alpha(135));
@@ -25,7 +24,7 @@ fn paint(painter: &egui::Painter, rect: Rect) {
     }
 }
 
-pub(super) fn show(ctx: &egui::Context, playing: bool) {
+pub(super) fn show(ctx: &egui::Context) {
     let size = Vec2::new(50., 38.);
     let rect = Rect::from_min_size(ctx.screen_rect().max - size - Vec2::splat(8.), size);
     paint(
@@ -35,38 +34,4 @@ pub(super) fn show(ctx: &egui::Context, playing: bool) {
         )),
         rect,
     );
-    if playing {
-        let monitor = ctx
-            .input(|i| i.viewport().monitor_size)
-            .unwrap_or(ctx.screen_rect().size());
-        ctx.show_viewport_deferred(
-            egui::ViewportId::from_hash_of("loss-game-overlay"),
-            egui::ViewportBuilder::default()
-                .with_title("Luma · Loss")
-                .with_inner_size(size)
-                .with_position(Pos2::new(
-                    (monitor.x - size.x - 12.).max(0.),
-                    (monitor.y - size.y - 12.).max(0.),
-                ))
-                .with_decorations(false)
-                .with_resizable(false)
-                .with_transparent(true)
-                .with_active(false)
-                .with_taskbar(false)
-                .with_mouse_passthrough(true)
-                .with_window_level(egui::WindowLevel::AlwaysOnTop),
-            move |overlay, class| {
-                if class == egui::ViewportClass::Embedded {
-                    return;
-                }
-                egui::CentralPanel::default()
-                    .frame(egui::Frame::NONE)
-                    .show(overlay, |ui| {
-                        paint(ui.painter(), Rect::from_min_size(ui.min_rect().min, size));
-                    });
-                overlay.request_repaint_after(Duration::from_millis(250));
-            },
-        );
-        ctx.request_repaint_after(Duration::from_millis(250));
-    }
 }
