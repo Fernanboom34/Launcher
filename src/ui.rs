@@ -470,6 +470,13 @@ impl Launcher {
     fn events(&mut self) {
         while let Ok(event) = self.rx.try_recv() {
             match event {
+                Event::ContentInfo(id, generation, info) => {
+                    if self.settings.active_installation == id
+                        && self.workspace.metadata_generation == generation
+                    {
+                        self.workspace.content_info = info;
+                    }
+                }
                 Event::SkinsChanged => {
                     self.skins.library = None;
                     self.skins.textures.clear();

@@ -6,6 +6,7 @@ mod catalog;
 #[allow(dead_code)]
 mod cleanup;
 mod content;
+mod content_meta;
 mod distribution;
 mod engine;
 mod game_process;

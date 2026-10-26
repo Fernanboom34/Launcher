@@ -250,6 +250,11 @@ pub enum Event {
     Profiles(Vec<GameProfile>),
     InstanceRemoved(String),
     ContentChanged(String),
+    ContentInfo(
+        String,
+        u64,
+        std::collections::HashMap<PathBuf, crate::content_meta::Info>,
+    ),
     ProfileCreated(Box<GameProfile>),
     LoaderVersions(
         Loader,
