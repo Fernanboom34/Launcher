@@ -454,8 +454,7 @@ fn window_impl(
                     path.metadata()?.len() <= 1024 * 1024 * 1024,
                     "El archivo supera 1 GB"
                 );
-                zip::ZipArchive::new(std::fs::File::open(&path)?)
-                    .context("El archivo descargado no es un JAR/ZIP válido")?;
+                crate::content::validate_archive(&path)?;
                 let target = candidate(&finished_dest, &name, kind)?;
                 std::fs::rename(&path, &target)?;
                 finished_tx.send(Event::ContentChanged(instance.clone()))?;

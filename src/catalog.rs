@@ -94,6 +94,7 @@ fn loader(profile: &GameProfile) -> &'static str {
 }
 fn client() -> Result<reqwest::blocking::Client> {
     Ok(reqwest::blocking::Client::builder()
+        .https_only(true)
         .user_agent(concat!(
             "Fernanboom34/LumaLauncher/",
             env!("CARGO_PKG_VERSION"),
@@ -447,6 +448,7 @@ pub fn install(
             ));
             let path = stage.join(&file.filename);
             download(&file, &path)?;
+            crate::content::validate_archive(&path)?;
             files.push((version, file, path));
         }
         // Validate all collisions before replacing any file; only replace files managed by this catalog.

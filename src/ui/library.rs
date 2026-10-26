@@ -237,69 +237,88 @@ impl Launcher {
     }
 
     pub(super) fn context_panel(&mut self, ctx: &egui::Context) {
-        egui::SidePanel::right("instance_context").exact_width(244.).resizable(false).frame(egui::Frame::new().fill(palette().panel).inner_margin(16.)).show(ctx, |ui| {
+        egui::SidePanel::right("instance_context")
+            .exact_width((ctx.screen_rect().width() * 0.18).clamp(190., 280.))
+            .resizable(false)
+            .frame(egui::Frame::new().fill(palette().panel).inner_margin(16.))
+            .show(ctx, |ui| {
                 self.account_switcher(ui);
 
-            egui::ScrollArea::vertical().id_salt("context_scroll").show(ui, |ui| {
-                section(ui,"JUGANDO COMO");
-                card().inner_margin(12.).show(ui, |ui| {
-                    ui.set_min_width(ui.available_width());
-                    ui.horizontal(|ui| {
-                        let (avatar,_) = ui.allocate_exact_size(Vec2::splat(40.),Sense::hover());
-                        art::cover(ui.painter(),avatar,Loader::Vanilla,0,None);
-                        ui.vertical(|ui| {
-                            ui.label(RichText::new(self.settings.profile.as_ref().map(|p|p.name.as_str()).unwrap_or(&self.settings.local_name)).strong().size(14.));
-                            ui.label(RichText::new(if self.settings.profile.as_ref().is_some_and(|p|!p.local) {"Cuenta Microsoft"}else{"Jugador local"}).size(11.).color(palette().muted));
+                egui::ScrollArea::vertical()
+                    .id_salt("context_scroll")
+                    .show(ui, |ui| {
+                        section(ui, "JUGANDO COMO");
+                        card().inner_margin(12.).show(ui, |ui| {
+                            ui.set_min_width(ui.available_width());
+                            ui.horizontal(|ui| {
+                                let (avatar, _) =
+                                    ui.allocate_exact_size(Vec2::splat(40.), Sense::hover());
+                                art::cover(ui.painter(), avatar, Loader::Vanilla, 0, None);
+                                ui.vertical(|ui| {
+                                    ui.label(
+                                        RichText::new(
+                                            self.settings
+                                                .profile
+                                                .as_ref()
+                                                .map(|p| p.name.as_str())
+                                                .unwrap_or(&self.settings.local_name),
+                                        )
+                                        .strong()
+                                        .size(14.),
+                                    );
+                                    ui.label(
+                                        RichText::new(
+                                            if self
+                                                .settings
+                                                .profile
+                                                .as_ref()
+                                                .is_some_and(|p| !p.local)
+                                            {
+                                                "Cuenta Microsoft"
+                                            } else {
+                                                "Jugador local"
+                                            },
+                                        )
+                                        .size(11.)
+                                        .color(palette().muted),
+                                    );
+                                });
+                            });
+                        });
+                        ui.collapsing("Cambiar jugador", |ui| {
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.settings.local_name)
+                                    .desired_width(ui.available_width())
+                                    .char_limit(16),
+                            );
+                            if ui
+                                .add_enabled(!self.busy, egui::Button::new("Usar nombre"))
+                                .clicked()
+                            {
+                                match model::Profile::offline(&self.settings.local_name) {
+                                    Ok(profile) => {
+                                        if !self
+                                            .settings
+                                            .accounts
+                                            .iter()
+                                            .any(|p| p.id == profile.id)
+                                        {
+                                            self.settings.accounts.push(profile.clone());
+                                        }
+                                        self.settings.profile = Some(profile);
+                                        self.session = None;
+                                        self.save_settings();
+                                    }
+                                    Err(error) => self.error = Some(error.to_string()),
+                                }
+                            }
+                            if ui.small_button("Opciones de cuenta").clicked() {
+                                self.page = Page::Settings;
+                                self.workspace.global_tab = 2;
+                            }
                         });
                     });
-                });
-                ui.collapsing("Cambiar jugador", |ui| {
-                    ui.add(egui::TextEdit::singleline(&mut self.settings.local_name).desired_width(ui.available_width()).char_limit(16));
-                    if ui.add_enabled(!self.busy,egui::Button::new("Usar nombre")).clicked() {
-                        match model::Profile::offline(&self.settings.local_name) {
-                            Ok(profile)=>{if !self.settings.accounts.iter().any(|p|p.id==profile.id){self.settings.accounts.push(profile.clone());}self.settings.profile=Some(profile);self.session=None;self.save_settings();},
-                            Err(error)=>self.error=Some(error.to_string()),
-                        }
-                    }
-                    if ui.small_button("Opciones de cuenta").clicked() {self.page=Page::Settings;self.workspace.global_tab=2;}
-                });
-
-                ui.add_space(14.);ui.separator();ui.add_space(12.);
-                section(ui,"INSTANCIA SELECCIONADA");
-                if let Some(profile)=self.active_installation().cloned() {
-                    ui.horizontal(|ui| {
-                        let (cover,_) = ui.allocate_exact_size(Vec2::splat(54.),Sense::hover());
-                        self.paint_cover(ui,cover,&profile);
-                        ui.vertical(|ui| {
-                            ui.label(RichText::new(&profile.name).size(14.).strong());
-                            ui.label(RichText::new(format!("{} {}",profile.loader.label(),profile.minecraft)).size(11.).color(palette().muted));
-                        });
-                    });
-                    if ui.add_enabled(!self.busy || self.is_running(&profile),primary(self.play_label(&profile)).min_size(Vec2::new(ui.available_width(),36.))).clicked() {self.play_instance(&profile);}
-                    ui.horizontal(|ui| {
-                        if ui.add_enabled(profile.loader!=Loader::Vanilla,egui::Button::new("Mods").min_size(Vec2::new(92.,32.))).clicked() {self.instance_folder(&profile,true);}
-                        if ui.add(egui::Button::new("Carpeta").min_size(Vec2::new(92.,32.))).clicked() {self.instance_folder(&profile,false);}
-                    });
-                    if ui.button("Personalizar portada").clicked() {self.library.cover_target=Some(profile.id.clone());}
-                    ui.label(RichText::new(if profile.imported {"Usa la carpeta de juego importada."}else{"Mods y mundos en su propia carpeta."}).size(11.).color(palette().muted));
-                } else {
-                    card().inner_margin(14.).show(ui,|ui| {
-                        ui.label(RichText::new("Tu próxima aventura").strong());
-                        ui.label(RichText::new("Elige una tarjeta de la biblioteca para ver sus opciones.").size(12.).color(palette().muted));
-                    });
-                }
-                ui.add_space(14.);ui.separator();ui.add_space(12.);
-                section(ui,"TU ESPACIO");
-                ui.horizontal(|ui| {ui.label(RichText::new(format!("{} instancias",self.installations.len())).size(12.).color(palette().muted));ui.label(RichText::new(format!("{:.1} GB de RAM",self.settings.memory_mb as f32/1024.)).size(12.).color(palette().muted));});
-                ui.add_space(12.);
-                card().fill(palette().soft).inner_margin(14.).show(ui, |ui| {
-                    ui.set_min_width(ui.available_width());
-                    ui.label(RichText::new("Un lugar para cada mundo").strong().size(15.));
-                    ui.label(RichText::new("Crea otra instancia para probar un cargador o una combinación distinta de mods.").size(12.).color(palette().muted));
-                    if ui.add_enabled(!self.busy,egui::Button::new("+ Nueva instancia")).clicked() {self.open_create();}
-                });
             });
-        });
     }
 
     pub(super) fn home(&mut self, ui: &mut egui::Ui) {

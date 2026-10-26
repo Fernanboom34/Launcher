@@ -15,6 +15,7 @@ pub fn client() -> Result<Client> {
             env!("CARGO_PKG_VERSION"),
             " (https://github.com/Fernanboom34/Launcher)"
         ))
+        .https_only(true)
         .connect_timeout(Duration::from_secs(15))
         .timeout(Duration::from_secs(600))
         .build()?)
@@ -63,7 +64,11 @@ pub fn download(
     let result = (|| -> Result<()> {
         let mut response = client.get(url).send()?.error_for_status()?;
         let mut file = fs::File::create(&part)?;
-        std::io::copy(&mut response, &mut file)?;
+        let size = std::io::copy(
+            &mut response.by_ref().take(1024 * 1024 * 1024 + 1),
+            &mut file,
+        )?;
+        anyhow::ensure!(size <= 1024 * 1024 * 1024, "Descarga demasiado grande");
         file.flush()?;
         if let Some(expected) = sha1 {
             anyhow::ensure!(

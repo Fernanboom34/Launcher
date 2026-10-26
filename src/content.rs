@@ -424,3 +424,123 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 }
+
+/// Structural validation, not a malware verdict. JAR bytecode remains executable.
+pub fn validate_archive(path: &Path) -> Result<()> {
+    anyhow::ensure!(
+        fs::metadata(path)?.len() <= 512 * 1024 * 1024,
+        "Archivo de contenido demasiado grande"
+    );
+    let mut zip = zip::ZipArchive::new(fs::File::open(path)?)?;
+    anyhow::ensure!(
+        !zip.is_empty() && zip.len() <= 65536,
+        "Cantidad de entradas ZIP inválida"
+    );
+    let mut total = 0u64;
+    let mut names = std::collections::HashSet::new();
+    for i in 0..zip.len() {
+        let entry = zip.by_index(i)?;
+        let name = entry.name().to_owned();
+        anyhow::ensure!(
+            entry.enclosed_name().is_some()
+                && !name.contains('\\')
+                && !name.contains(':')
+                && !name.chars().any(char::is_control),
+            "Ruta ZIP peligrosa"
+        );
+        anyhow::ensure!(names.insert(name.to_lowercase()), "Ruta ZIP duplicada");
+        anyhow::ensure!(
+            entry.unix_mode().is_none_or(|m| m & 0o170000 != 0o120000),
+            "Enlace simbólico en ZIP"
+        );
+        anyhow::ensure!(
+            entry.size() <= 256 * 1024 * 1024,
+            "Entrada ZIP demasiado grande"
+        );
+        total = total
+            .checked_add(entry.size())
+            .context("Tamaño ZIP inválido")?;
+        anyhow::ensure!(
+            total <= 1024 * 1024 * 1024,
+            "Contenido descomprimido demasiado grande"
+        );
+        anyhow::ensure!(
+            entry.size()
+                <= entry
+                    .compressed_size()
+                    .saturating_mul(1000)
+                    .max(1024 * 1024),
+            "Compresión ZIP excesiva"
+        );
+        let expected = entry.size();
+        let actual = std::io::copy(&mut entry.take(expected + 1), &mut std::io::sink())?;
+        anyhow::ensure!(actual == expected, "Tamaño ZIP inconsistente");
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod hostile_archives {
+    use super::*;
+    use std::io::Write;
+    fn check(entries: &[(&str, &[u8])]) -> Result<()> {
+        let mut nonce = [0u8; 8];
+        getrandom::getrandom(&mut nonce).unwrap();
+        let path =
+            std::env::temp_dir().join(format!("luma-archive-{:x}.zip", u64::from_le_bytes(nonce)));
+        let mut writer = zip::ZipWriter::new(fs::File::create(&path)?);
+        for (name, data) in entries {
+            writer.start_file(*name, zip::write::SimpleFileOptions::default())?;
+            writer.write_all(data)?;
+        }
+        writer.finish()?;
+        let result = validate_archive(&path);
+        fs::remove_file(path)?;
+        result
+    }
+    #[test]
+    fn rejects_traversal_windows_paths_and_case_collisions() {
+        for name in ["../escape", "/absolute", "C:/escape", "a\\..\\escape"] {
+            assert!(check(&[(name, b"hostile")]).is_err(), "{name}");
+        }
+        assert!(check(&[("A", b"a"), ("a", b"b")]).is_err());
+        assert!(check(&[("pack.mcmeta", b"{}"), ("assets/example/test", b"hello")]).is_ok());
+    }
+    #[test]
+    fn rejects_symlinks_and_corrupted_payloads() {
+        let path = std::env::temp_dir().join(format!("luma-corrupt-{}.zip", std::process::id()));
+        let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        writer
+            .add_symlink(
+                "link",
+                "../../outside",
+                zip::write::SimpleFileOptions::default(),
+            )
+            .unwrap();
+        let bytes = writer.finish().unwrap().into_inner();
+        fs::write(&path, bytes).unwrap();
+        assert!(validate_archive(&path).is_err());
+        let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        writer
+            .start_file(
+                "payload",
+                zip::write::SimpleFileOptions::default()
+                    .compression_method(zip::CompressionMethod::Stored),
+            )
+            .unwrap();
+        writer.write_all(b"unique-payload-bytes").unwrap();
+        let mut bytes = writer.finish().unwrap().into_inner();
+        let offset = bytes
+            .windows(20)
+            .position(|w| w == b"unique-payload-bytes")
+            .unwrap();
+        bytes[offset] ^= 1;
+        fs::write(&path, bytes).unwrap();
+        assert!(validate_archive(&path).is_err());
+        fs::remove_file(path).unwrap();
+    }
+    #[test]
+    fn rejects_compression_bomb() {
+        assert!(check(&[("bomb", &vec![0; 2 * 1024 * 1024])]).is_err());
+    }
+}
