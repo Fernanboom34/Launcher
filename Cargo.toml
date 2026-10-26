@@ -25,7 +25,7 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 base64 = "0.23"
 getrandom = "0.2"
 url = "2"
-rfd = "0.15"
+rfd = "0.17"
 flate2 = "1"
 fastnbt = "2"
 shell-words = "1"
