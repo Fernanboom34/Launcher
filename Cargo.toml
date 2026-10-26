@@ -36,8 +36,8 @@ lto = "thin"
 
 
 [target.'cfg(windows)'.dependencies]
-wry = { version = "0.57.1", default-features = false, features = ["os-webview"] }
-tao = "0.35"
+wry = { version = "0.57.1", default-features = false }
+winit = { version = "0.30", default-features = false, features = ["rwh_06"] }
 webview2-com = "0.39"
 windows-core = "0.62"
 
