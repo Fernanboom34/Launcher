@@ -21,7 +21,7 @@ artifacts.mkdir(exist_ok=True)
 symbols = subprocess.check_output(['objdump', '-T', str(binary)], text=True)
 # Weak imports have runtime fallbacks (e.g. Rust's optional pidfd_spawnp).
 strong_imports = '\n'.join(line for line in symbols.splitlines() if '*UND*' in line and 'w' not in line.split())
-versions = re.findall(r'GLIBC_([^"]+)', strong_imports)
+versions = re.findall(r'GLIBC_([0-9.]+)', strong_imports)
 glibc = max(versions, key=lambda s: tuple(map(int, s.split('.'))))
 header = binary.read_bytes()[:20]
 if header[:6] != b'\x7fELF\x02\x01' or int.from_bytes(header[18:20], 'little') != 62:
