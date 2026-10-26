@@ -39,7 +39,7 @@ lto = "thin"
 wry = { version = "0.57.1", default-features = false }
 winit = { version = "0.30", default-features = false, features = ["rwh_06"] }
 webview2-com = "0.39"
-windows-core = "0.62"
+windows-core = "0.100"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 eframe = { version = "0.31.1", default-features = false, features = ["x11", "wayland"] }
