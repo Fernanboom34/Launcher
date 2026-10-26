@@ -424,12 +424,9 @@ impl Launcher {
                 }
             }
             if let Some(texture) = self.workspace.content_textures.get(path) {
-                ui.painter().image(
-                    texture.id(),
-                    rect,
-                    Rect::from_min_max(Pos2::ZERO, Pos2::new(1., 1.)),
-                    Color32::WHITE,
-                );
+                egui::Image::new((texture.id(), rect.size()))
+                    .corner_radius(7)
+                    .paint_at(ui, rect);
                 return;
             }
         }
