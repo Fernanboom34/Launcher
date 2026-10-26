@@ -296,28 +296,30 @@ fn window_impl(
         cell::{Cell, RefCell},
         rc::Rc,
     };
-    use tao::{
+    use winit::{
         event::{Event as WindowEvent, WindowEvent as NativeEvent},
-        event_loop::{ControlFlow, EventLoopBuilder},
-        platform::{run_return::EventLoopExtRunReturn, windows::EventLoopBuilderExtWindows},
-        window::WindowBuilder,
+        event_loop::{ControlFlow, EventLoop},
+        platform::{run_on_demand::EventLoopExtRunOnDemand, windows::EventLoopBuilderExtWindows},
+        window::Window,
     };
     if probe {
         wry::webview_version().context("La prueba requiere WebView2 ya instalado")?;
     } else {
         ensure_runtime(tx)?;
     }
-    let mut events = EventLoopBuilder::new().with_any_thread(true).build();
-    let window = WindowBuilder::new()
-        .with_visible(!probe || std::env::var_os("LUMA_BROWSER_VISIBLE_PROBE").is_some())
-        .with_title(format!(
-            "Luma · {} · {} · Descargas a {}",
-            profile.name,
-            kind.label(),
-            crate::cleanup::display_path(dest)
-        ))
-        .with_inner_size(tao::dpi::LogicalSize::new(1150., 780.))
-        .build(&events)?;
+    let mut events = EventLoop::builder().with_any_thread(true).build()?;
+    #[allow(deprecated)]
+    let window = events.create_window(
+        Window::default_attributes()
+            .with_visible(!probe || std::env::var_os("LUMA_BROWSER_VISIBLE_PROBE").is_some())
+            .with_title(format!(
+                "Luma · {} · {} · Descargas a {}",
+                profile.name,
+                kind.label(),
+                crate::cleanup::display_path(dest)
+            ))
+            .with_inner_size(winit::dpi::LogicalSize::new(1150., 780.)),
+    )?;
     let stage = profile.game_dir.join(".luma/web-downloads").join(format!(
         "{}-{}",
         std::process::id(),
@@ -476,16 +478,16 @@ fn window_impl(
         "Navegador abierto: las descargas pertenecen a esta instancia".into(),
     ))?;
     let started = std::time::Instant::now();
-    events.run_return(|event, _, flow| {
-        *flow = if probe {
+    events.run_on_demand(|event, target| {
+        target.set_control_flow(if probe {
             ControlFlow::WaitUntil(
                 std::time::Instant::now() + std::time::Duration::from_millis(100),
             )
         } else {
             ControlFlow::Wait
-        };
+        });
         match event {
-            WindowEvent::MainEventsCleared => {
+            WindowEvent::AboutToWait => {
                 if downloads_ui.replace(false) {
                     use wry::WebViewExtWindows;
                     use windows_core::Interface;
@@ -504,7 +506,7 @@ fn window_impl(
                 if probe
                     && (completed.get() || started.elapsed() > std::time::Duration::from_secs(if probe_script.is_some() { 90 } else { 35 }))
                 {
-                    *flow = ControlFlow::Exit;
+                    target.exit();
                 }
             }
             WindowEvent::WindowEvent {
@@ -512,7 +514,7 @@ fn window_impl(
                 ..
             } => {
                 if active.get() == 0 {
-                    *flow = ControlFlow::Exit
+                    target.exit()
                 } else {
                     if rfd::MessageDialog::new()
                         .set_title("Hay descargas en curso")
@@ -523,7 +525,7 @@ fn window_impl(
                         .show()
                         == rfd::MessageDialogResult::Yes
                     {
-                        *flow = ControlFlow::Exit;
+                        target.exit();
                     }
                 }
             }
@@ -533,14 +535,14 @@ fn window_impl(
             } => {
                 if let Some(view) = view.borrow().as_ref() {
                     let _ = view.set_bounds(wry::Rect {
-                        position: tao::dpi::LogicalPosition::new(0., 0.).into(),
+                        position: wry::dpi::LogicalPosition::new(0., 0.).into(),
                         size: wry::dpi::PhysicalSize::new(size.width, size.height).into(),
                     });
                 }
             }
             _ => (),
         }
-    });
+    })?;
     *view.borrow_mut() = None;
     let _ = crate::cleanup::delete_verified_directory(&stage, &stage.canonicalize()?);
     Ok(())
