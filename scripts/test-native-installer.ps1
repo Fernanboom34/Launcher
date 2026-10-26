@@ -49,5 +49,5 @@ $manifest = Get-Content -LiteralPath artifacts/luma-release.json | ConvertFrom-J
 $checksums = @("artifacts/Luma-$($manifest.version).exe", 'artifacts/Luma-Setup.exe') | ForEach-Object {
     "$((Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash.ToLowerInvariant())  $([IO.Path]::GetFileName($_))"
 }
-[IO.File]::WriteAllLines((Join-Path $PWD 'artifacts/SHA256SUMS.txt'), $checksums, [Text.UTF8Encoding]::new($false))
+[IO.File]::WriteAllText((Join-Path $PWD 'artifacts/SHA256SUMS.txt'), (($checksums -join "`n") + "`n"), [Text.UTF8Encoding]::new($false))
 Write-Output 'Native installer compile/install/uninstall fixture passed; unrelated data preserved.'
