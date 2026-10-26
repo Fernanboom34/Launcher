@@ -23,7 +23,7 @@ webbrowser = "1"
 regex = "1"
 image = { version = "0.25", default-features = false, features = ["png"] }
 base64 = "0.22"
-getrandom = "0.2"
+getrandom = "0.4"
 url = "2"
 rfd = "0.15"
 flate2 = "1"
