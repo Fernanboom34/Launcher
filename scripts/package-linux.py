@@ -59,7 +59,7 @@ with tempfile.TemporaryDirectory(prefix='luma-package-') as temporary:
     shutil.copy2(repo / 'docs/LINUX.md', deb / 'usr/share/doc/luma-launcher/README.md')
     dependencies = f'libc6 (>= {glibc}), libgcc-s1, libx11-6, libx11-xcb1, libxcb1, libxcursor1, libxi6, libxrandr2, libxkbcommon0, libxkbcommon-x11-0, libgl1, libegl1, libwayland-client0, libwayland-cursor0, libwayland-egl1, xdg-utils'
     (deb / 'DEBIAN/control').write_text(f'Package: luma-launcher\nVersion: {deb_version}\nArchitecture: amd64\nMaintainer: Luma contributors\nSection: games\nPriority: optional\nDepends: {dependencies}\nRecommends: xdg-desktop-portal, xdg-desktop-portal-gtk\nHomepage: https://github.com/Fernanboom34/Launcher\nDescription: Luma Minecraft Java Edition launcher\n Native Linux x64 launcher with isolated instances and Modrinth content.\n')
-    deb_path = artifacts / f'luma-launcher_{deb_version}_amd64.deb'
+    deb_path = artifacts / f'luma-launcher_{linux_version}_amd64.deb'
     deb.chmod(0o755)
     for path in deb.rglob('*'):
         if not path.is_symlink():

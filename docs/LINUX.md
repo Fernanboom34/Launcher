@@ -7,12 +7,12 @@ Requiere Linux **x86_64 con glibc**, OpenGL 3.3 y una sesión de escritorio X11 
 En Debian/Ubuntu, descarga el `.deb` y ejecuta:
 
 ```sh
-sudo apt install ./luma-launcher_0.7.0_amd64.deb
+sudo apt install ./luma-launcher_<versión>_amd64.deb
 ```
 
 El menú de aplicaciones mostrará **Luma**. También puedes ejecutar `luma-launcher`. Retira el paquete con `sudo apt remove luma-launcher`; los datos de juego se conservan.
 
-Para instalar solo para tu usuario, extrae `Luma-0.7.0-linux-x64.tar.gz` y, dentro de esa carpeta, ejecuta:
+Para instalar solo para tu usuario, extrae `Luma-<versión>-linux-x64.tar.gz` y, dentro de esa carpeta, ejecuta:
 
 ```sh
 ./install.sh
