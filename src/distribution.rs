@@ -21,10 +21,95 @@ pub struct Release {
     pub version: String,
     pub url: String,
     pub sha256: String,
+    #[serde(default)]
+    pub signature: String,
+}
+#[derive(Deserialize)]
+struct UpdateTrust {
+    ed25519_public_keys: Vec<String>,
+    #[allow(dead_code)]
+    authenticode_certificate_sha256: Vec<String>,
+}
+fn update_trust() -> Result<UpdateTrust> {
+    Ok(serde_json::from_str(include_str!(
+        "../security/update-trust.json"
+    ))?)
+}
+fn signed_payload(release: &Release) -> Vec<u8> {
+    format!(
+        "Luma update manifest v1\n{}\n{}\n{}\n",
+        release.version, release.url, release.sha256
+    )
+    .into_bytes()
+}
+fn verify_release_with_keys(release: &Release, keys: &[String]) -> Result<()> {
+    use base64::Engine;
+    use ed25519_dalek::{Signature, VerifyingKey};
+    anyhow::ensure!(!keys.is_empty(), "Actualizaciones automáticas bloqueadas: aún no hay claves públicas de firma configuradas. Instala manualmente una versión revisada.");
+    trusted(&release.url)?;
+    anyhow::ensure!(
+        release.sha256.len() == 64
+            && release.sha256.bytes().all(|b| b.is_ascii_hexdigit())
+            && !release.version.contains(['\n', '\r']),
+        "Manifiesto inválido"
+    );
+    let signature = Signature::from_slice(
+        &base64::engine::general_purpose::STANDARD
+            .decode(&release.signature)
+            .context("Falta una firma Ed25519 válida en el manifiesto")?,
+    )?;
+    let valid = keys.iter().any(|encoded| {
+        let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(encoded) else {
+            return false;
+        };
+        let Ok(bytes) = <[u8; 32]>::try_from(bytes.as_slice()) else {
+            return false;
+        };
+        VerifyingKey::from_bytes(&bytes).is_ok_and(|key| {
+            key.verify_strict(&signed_payload(release), &signature)
+                .is_ok()
+        })
+    });
+    anyhow::ensure!(
+        valid,
+        "La firma del manifiesto no pertenece a un editor confiable"
+    );
+    Ok(())
+}
+fn verify_release(release: &Release) -> Result<()> {
+    verify_release_with_keys(release, &update_trust()?.ed25519_public_keys)
+}
+fn staged_release(staged: &Path) -> Result<Release> {
+    let mut bytes = Vec::new();
+    fs::File::open(staged.with_extension("signed-manifest.json"))?
+        .take(16385)
+        .read_to_end(&mut bytes)?;
+    anyhow::ensure!(bytes.len() <= 16384, "Manifiesto demasiado grande");
+    let release: Release = serde_json::from_slice(&bytes)?;
+    verify_release(&release)?;
+    Ok(release)
+}
+#[cfg(windows)]
+fn verify_authenticode(path: &Path) -> Result<()> {
+    let trust = update_trust()?;
+    anyhow::ensure!(
+        !trust.authenticode_certificate_sha256.is_empty(),
+        "Actualización bloqueada: no hay certificado Authenticode confiable configurado"
+    );
+    let allowed = trust
+        .authenticode_certificate_sha256
+        .iter()
+        .map(|s| quote(s))
+        .collect::<Vec<_>>()
+        .join(",");
+    let script = format!("$signature=Get-AuthenticodeSignature -LiteralPath {};if($signature.Status -ne 'Valid'){{throw 'Firma Authenticode inválida'}};$hash=[Security.Cryptography.SHA256]::Create();try{{$fingerprint=[BitConverter]::ToString($hash.ComputeHash($signature.SignerCertificate.RawData)).Replace('-','').ToLowerInvariant()}}finally{{$hash.Dispose()}};if(@({}) -notcontains $fingerprint){{throw 'Certificado Authenticode no confiable'}}",quote(&path.to_string_lossy()),allowed);
+    ps_output(&script)?;
+    Ok(())
 }
 fn client() -> Result<reqwest::blocking::Client> {
     Ok(reqwest::blocking::Client::builder()
         .user_agent("Luma-Launcher")
+        .https_only(true)
         .timeout(std::time::Duration::from_secs(300))
         .build()?)
 }
@@ -79,6 +164,7 @@ pub fn latest() -> Result<Release> {
         release.sha256.len() == 64 && release.sha256.bytes().all(|x| x.is_ascii_hexdigit()),
         "SHA-256 inválido"
     );
+    verify_release(&release)?;
     Ok(release)
 }
 pub fn newer(version: &str, current: &str) -> bool {
@@ -98,7 +184,7 @@ pub fn newer(version: &str, current: &str) -> bool {
     }
 }
 pub fn download(release: &Release, target: &Path, status: &Sender<String>) -> Result<()> {
-    trusted(&release.url)?;
+    verify_release(release)?;
     fs::create_dir_all(target.parent().context("Destino inválido")?)?;
     let part = target.with_extension("download");
     let result = (|| -> Result<()> {
@@ -128,11 +214,17 @@ pub fn download(release: &Release, target: &Path, status: &Sender<String>) -> Re
             "La descarga no coincide con su SHA-256"
         );
         validate_executable(&part)?;
+        #[cfg(windows)]
+        verify_authenticode(&part)?;
         #[cfg(target_os = "linux")]
         {
             use std::os::unix::fs::PermissionsExt;
             fs::set_permissions(&part, fs::Permissions::from_mode(0o755))?;
         }
+        fs::write(
+            target.with_extension("signed-manifest.json"),
+            serde_json::to_vec(release)?,
+        )?;
         fs::rename(&part, target)?;
         Ok(())
     })();
@@ -244,6 +336,8 @@ pub fn is_program_installation(path: &Path) -> bool {
 #[allow(dead_code)]
 #[cfg(windows)]
 pub fn install_application(release: &Release, staged: &Path, setup: &Path) -> Result<()> {
+    verify_release(release)?;
+    verify_authenticode(staged)?;
     elevate(&installation_script(
         release,
         staged,
@@ -288,7 +382,7 @@ pub fn shortcut(executable: &Path, name: &str, arguments: &str) -> Result<()> {
 pub fn apply_update(staged: &Path) -> Result<()> {
     let exe = std::env::current_exe()?;
     let result = staged.with_extension("update-result.txt");
-    let digest = format!("{:x}", Sha256::digest(fs::read(staged)?));
+    let digest = staged_release(staged)?.sha256;
     let replacement=format!("{};$ProgressPreference='SilentlyContinue';$ErrorActionPreference='Stop';Wait-Process -Id {} -ErrorAction SilentlyContinue;Start-Sleep -Milliseconds 500;$target={};$source={};$result={};$backup=$target+'.previous';$locked=$null;try{{$locked=Open-LumaVerifiedFile $source '{digest}';Copy-Item -LiteralPath $target -Destination $backup -Force;Copy-LumaVerifiedStream $locked $target;[IO.File]::WriteAllText($result,'OK')}}catch{{[IO.File]::WriteAllText($result,$_.Exception.Message);if(Test-Path -LiteralPath $backup){{Copy-Item -LiteralPath $backup -Destination $target -Force -ErrorAction SilentlyContinue}}}}finally{{if($locked){{$locked.Dispose()}}}}",include_str!("windows/locked-copy.ps1"),std::process::id(),quote(&exe.to_string_lossy()),quote(&staged.to_string_lossy()),quote(&result.to_string_lossy()));
     let start=format!("Start-Process -FilePath {} -WorkingDirectory {} -ArgumentList ('--update-report \"'+{}+'\"')",quote(&exe.to_string_lossy()),quote(&exe.parent().context("Ruta inválida")?.to_string_lossy()),quote(&result.to_string_lossy()));
     if exe.parent().is_some_and(is_program_installation) {
@@ -357,6 +451,7 @@ mod tests {
             version: "0.7.0".into(),
             url: String::new(),
             sha256: "0".repeat(64),
+            signature: String::new(),
         };
         assert!(ps_output(&installation_script(&release, &app, &setup, &target).unwrap()).is_err());
         assert!(!target.exists());
@@ -397,6 +492,43 @@ mod tests {
         assert_eq!(install_dir().file_name().unwrap(), "Luma Launcher");
         assert!(is_program_installation(&install_dir()));
         assert!(!is_program_installation(&legacy_install_dir()));
+    }
+    #[test]
+    fn signed_manifests_reject_tampering_wrong_keys_and_missing_trust() {
+        use base64::Engine;
+        use ed25519_dalek::{Signer, SigningKey};
+        // Fixed test key only; it is never in the production trust configuration.
+        let signer = SigningKey::from_bytes(&[7; 32]);
+        let key =
+            base64::engine::general_purpose::STANDARD.encode(signer.verifying_key().to_bytes());
+        let mut release = Release {
+            version: "0.8.1".into(),
+            url: "https://github.com/Fernanboom34/Launcher/releases/download/v0.8.1/Luma.exe"
+                .into(),
+            sha256: "a".repeat(64),
+            signature: String::new(),
+        };
+        release.signature = base64::engine::general_purpose::STANDARD
+            .encode(signer.sign(&signed_payload(&release)).to_bytes());
+        assert!(verify_release_with_keys(&release, std::slice::from_ref(&key)).is_ok());
+        assert!(verify_release_with_keys(&release, &[]).is_err());
+        let wrong = SigningKey::from_bytes(&[8; 32]);
+        assert!(verify_release_with_keys(
+            &release,
+            &[base64::engine::general_purpose::STANDARD.encode(wrong.verifying_key().to_bytes())]
+        )
+        .is_err());
+        for field in 0..3 {
+            let mut altered = release.clone();
+            match field {
+                0 => altered.version = "0.8.2".into(),
+                1 => altered.url.push_str("?other"),
+                _ => altered.sha256 = "b".repeat(64),
+            };
+            assert!(verify_release_with_keys(&altered, std::slice::from_ref(&key)).is_err());
+        }
+        release.signature.clear();
+        assert!(verify_release_with_keys(&release, &[key]).is_err());
     }
     #[test]
     fn releases_are_scoped_and_versions_numeric() {

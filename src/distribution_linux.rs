@@ -42,6 +42,7 @@ pub fn shortcut(executable: &Path, name: &str, arguments: &str) -> Result<()> {
 }
 
 pub fn apply_update(staged: &Path) -> Result<()> {
+    let release = super::staged_release(staged)?;
     let exe = std::env::current_exe()?.canonicalize()?;
     let installed = data_home()?.join("luma-launcher/bin/luma-launcher");
     anyhow::ensure!(
@@ -55,7 +56,24 @@ pub fn apply_update(staged: &Path) -> Result<()> {
         .create_new(true)
         .open(&temporary)?;
     let result = (|| -> Result<()> {
-        std::io::copy(&mut fs::File::open(staged)?, &mut output)?;
+        let mut input = fs::File::open(staged)?;
+        let mut hash = Sha256::new();
+        let mut bytes = [0u8; 65536];
+        let mut total = 0u64;
+        loop {
+            let n = input.read(&mut bytes)?;
+            if n == 0 {
+                break;
+            }
+            total += n as u64;
+            anyhow::ensure!(total <= 256 * 1024 * 1024, "Actualización demasiado grande");
+            hash.update(&bytes[..n]);
+            output.write_all(&bytes[..n])?;
+        }
+        anyhow::ensure!(
+            format!("{:x}", hash.finalize()).eq_ignore_ascii_case(&release.sha256),
+            "La actualización cambió antes de instalarse"
+        );
         output.set_permissions(fs::Permissions::from_mode(0o755))?;
         output.sync_all()?;
         fs::copy(&exe, exe.with_extension("previous"))?;
