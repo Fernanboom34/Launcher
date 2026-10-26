@@ -1,8 +1,8 @@
 #ifndef SetupVersion
-  #define SetupVersion "0.8.0-beta.4"
+  #define SetupVersion "0.8.0-rc.1"
 #endif
 #ifndef ReleaseTag
-  #define ReleaseTag "v0.8.0-beta.4"
+  #define ReleaseTag "v0.8.0-rc.1"
 #endif
 
 [Setup]
