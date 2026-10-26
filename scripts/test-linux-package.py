@@ -13,7 +13,7 @@ version = re.search(r'^version = "([^"]+)"', (repo / 'Cargo.toml').read_text(), 
 linux_version = version[:-8] if version.endswith('-windows') else version
 deb_version = linux_version.replace('-beta.', '~beta.')
 archive = repo / 'artifacts' / f'Luma-{linux_version}-linux-x64.tar.gz'
-deb = repo / 'artifacts' / f'luma-launcher_{deb_version}_amd64.deb'
+deb = repo / 'artifacts' / f'luma-launcher_{linux_version}_amd64.deb'
 
 
 def run(*command, env, expected=0):
