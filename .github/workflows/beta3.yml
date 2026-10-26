@@ -125,6 +125,19 @@ jobs:
           python3 -c 'from pathlib import Path; p = Path("windows/SHA256SUMS.txt"); p.write_bytes(p.read_bytes().replace(b"\r\n", b"\n"))'
           (cd windows && sha256sum -c SHA256SUMS.txt)
           (cd linux && sha256sum -c SHA256SUMS-linux-x64.txt)
-          gh release create v0.8.0-beta.3 --target "$GITHUB_SHA" --prerelease --latest=false --title 'Luma 0.8.0-beta.3 — Windows y Linux x64' --notes-file docs/BETA3.md \
-            windows/Luma-0.8.0-beta.3.exe windows/Luma-Setup.exe windows/luma-release.json windows/SHA256SUMS.txt \
-            linux/Luma-0.8.0-beta.3-linux-x64 linux/Luma-0.8.0-beta.3-linux-x64.tar.gz linux/luma-launcher_0.8.0-beta.3_amd64.deb linux/luma-release-linux-x64.json linux/SHA256SUMS-linux-x64.txt
+          assets=(windows/Luma-0.8.0-beta.3.exe windows/Luma-Setup.exe windows/luma-release.json windows/SHA256SUMS.txt
+                  linux/Luma-0.8.0-beta.3-linux-x64 linux/Luma-0.8.0-beta.3-linux-x64.tar.gz linux/luma-launcher_0.8.0-beta.3_amd64.deb linux/luma-release-linux-x64.json linux/SHA256SUMS-linux-x64.txt)
+          if gh api repos/$GH_REPO/releases/tags/v0.8.0-beta.3 > existing.json 2>/dev/null; then
+            # Only finish our own draft preparation; never overwrite a delivered release.
+            jq -e '.id == 424453442 and .draft == true and .prerelease == true' existing.json
+            previous=$(gh api repos/$GH_REPO/git/ref/tags/v0.8.0-beta.3 --jq .object.sha)
+            if [[ "$previous" != bc895c8076eebfe1b58685176feb3c4fa824d8d6 && "$previous" != "$GITHUB_SHA" ]]; then
+              echo 'El tag cambió fuera de esta preparación; no se modifica.' >&2
+              exit 1
+            fi
+            gh api --method PATCH repos/$GH_REPO/git/refs/tags/v0.8.0-beta.3 -f sha="$GITHUB_SHA" -F force=true > /dev/null
+            gh release upload v0.8.0-beta.3 "${assets[@]}" --clobber
+            gh release edit v0.8.0-beta.3 --notes-file docs/BETA3.md --prerelease --latest=false --draft=false
+          else
+            gh release create v0.8.0-beta.3 --target "$GITHUB_SHA" --prerelease --latest=false --title 'Luma 0.8.0-beta.3 — Windows y Linux x64' --notes-file docs/BETA3.md "${assets[@]}"
+          fi
