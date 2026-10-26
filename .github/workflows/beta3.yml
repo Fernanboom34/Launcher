@@ -14,14 +14,7 @@ jobs:
       RUSTFLAGS: '-C target-feature=+crt-static'
       LUMA_MICROSOFT_CLIENT_ID: ${{ secrets.LUMA_MICROSOFT_CLIENT_ID }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: beta3-windows-${{ hashFiles('Cargo.lock') }}
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - name: Preparar y verificar Rust
         shell: pwsh
         run: |
@@ -42,7 +35,7 @@ jobs:
           $env:LUMA_DATA_DIR = Join-Path $env:RUNNER_TEMP 'luma-cli-beta3'
           ./target/release/luma-launcher.exe --list-profiles
           if ($LASTEXITCODE) { throw 'CLI' }
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: beta3-windows
           path: |
@@ -56,7 +49,7 @@ jobs:
     env:
       LUMA_MICROSOFT_CLIENT_ID: ${{ secrets.LUMA_MICROSOFT_CLIENT_ID }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - name: Preparar herramientas y escritorio
         run: |
           sudo apt-get update
@@ -64,13 +57,6 @@ jobs:
           rustup update stable --no-self-update
           rustup default stable
           rustup component add rustfmt clippy
-      - uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: beta3-linux-${{ hashFiles('Cargo.lock') }}
       - name: Verificar y empaquetar
         run: |
           cargo fmt --check
@@ -86,7 +72,7 @@ jobs:
             xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 LUMA_DATA_DIR="$fixture" LUMA_PREVIEW_PAGE="$page" LUMA_PREVIEW="$PWD/artifacts/beta3-$page.png" timeout 30s target/release/luma-launcher
             test -s "artifacts/beta3-$page.png"
           done
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: beta3-linux
           path: |
@@ -95,7 +81,7 @@ jobs:
             artifacts/luma-release-linux-x64.json
             artifacts/SHA256SUMS-linux-x64.txt
           if-no-files-found: error
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: beta3-visual-checks
           path: artifacts/beta3-*.png
@@ -110,12 +96,12 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: Fernanboom34/Launcher
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: beta3-windows
           path: windows
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: beta3-linux
           path: linux
@@ -127,17 +113,4 @@ jobs:
           (cd linux && sha256sum -c SHA256SUMS-linux-x64.txt)
           assets=(windows/Luma-0.8.0-beta.3.exe windows/Luma-Setup.exe windows/luma-release.json windows/SHA256SUMS.txt
                   linux/Luma-0.8.0-beta.3-linux-x64 linux/Luma-0.8.0-beta.3-linux-x64.tar.gz linux/luma-launcher_0.8.0-beta.3_amd64.deb linux/luma-release-linux-x64.json linux/SHA256SUMS-linux-x64.txt)
-          if gh api repos/$GH_REPO/releases/tags/v0.8.0-beta.3 > existing.json 2>/dev/null; then
-            # Only finish our own draft preparation; never overwrite a delivered release.
-            jq -e '.id == 424453442 and .draft == true and .prerelease == true' existing.json
-            previous=$(gh api repos/$GH_REPO/git/ref/tags/v0.8.0-beta.3 --jq .object.sha)
-            if [[ "$previous" != bc895c8076eebfe1b58685176feb3c4fa824d8d6 && "$previous" != "$GITHUB_SHA" ]]; then
-              echo 'El tag cambió fuera de esta preparación; no se modifica.' >&2
-              exit 1
-            fi
-            gh api --method PATCH repos/$GH_REPO/git/refs/tags/v0.8.0-beta.3 -f sha="$GITHUB_SHA" -F force=true > /dev/null
-            gh release upload v0.8.0-beta.3 "${assets[@]}" --clobber
-            gh release edit v0.8.0-beta.3 --notes-file docs/BETA3.md --prerelease --latest=false --draft=false
-          else
-            gh release create v0.8.0-beta.3 --target "$GITHUB_SHA" --prerelease --latest=false --title 'Luma 0.8.0-beta.3 — Windows y Linux x64' --notes-file docs/BETA3.md "${assets[@]}"
-          fi
+          gh release create v0.8.0-beta.3 --target "$GITHUB_SHA" --prerelease --latest=false --title 'Luma 0.8.0-beta.3 — Windows y Linux x64' --notes-file docs/BETA3.md "${assets[@]}"
