@@ -18,7 +18,7 @@ jobs:
       - name: Auditoría RustSec
         run: |
           cargo install cargo-audit --locked --version 0.22.0
-          cargo audit
+          cargo audit --deny unsound
   codeql:
     runs-on: ubuntu-22.04
     permissions:
