@@ -34,7 +34,7 @@ jobs:
           $env:LUMA_DATA_DIR = Join-Path $env:RUNNER_TEMP 'luma-cli-rc1'
           ./target/release/luma-launcher.exe --list-profiles
           if ($LASTEXITCODE) { throw 'CLI' }
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: rc1-windows
           path: |
@@ -71,7 +71,7 @@ jobs:
             xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 LUMA_DATA_DIR="$fixture" LUMA_PREVIEW_PAGE="$page" LUMA_PREVIEW="$PWD/artifacts/rc1-$page.png" timeout 30s target/release/luma-launcher
             test -s "artifacts/rc1-$page.png"
           done
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: rc1-linux
           path: |
@@ -80,7 +80,7 @@ jobs:
             artifacts/luma-release-linux-x64.json
             artifacts/SHA256SUMS-linux-x64.txt
           if-no-files-found: error
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: rc1-visual-checks
           path: artifacts/rc1-*.png
