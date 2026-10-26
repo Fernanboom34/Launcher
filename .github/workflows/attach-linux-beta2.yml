@@ -28,8 +28,9 @@ jobs:
           cd payload
           sha256sum -c SHA256SUMS-linux-x64.txt
           file Luma-0.8.0-beta.2-linux-x64 | grep 'ELF 64-bit.*x86-64'
-          gh release upload v0.8.0-beta.2-windows \
-            Luma-0.8.0-beta.2-linux-x64 \
-            Luma-0.8.0-beta.2-linux-x64.tar.gz \
-            'luma-launcher_0.8.0~beta.2_amd64.deb' \
-            luma-release-linux-x64.json SHA256SUMS-linux-x64.txt
+          # GitHub normalizes tilde characters in uploaded asset names.
+          # Keep Debian's internal version but use a URL-safe download name.
+          mv 'luma-launcher_0.8.0~beta.2_amd64.deb' luma-launcher_0.8.0-beta.2_amd64.deb
+          sed -i 's/luma-launcher_0.8.0~beta.2_amd64.deb/luma-launcher_0.8.0-beta.2_amd64.deb/' SHA256SUMS-linux-x64.txt
+          sha256sum -c SHA256SUMS-linux-x64.txt
+          gh release upload v0.8.0-beta.2-windows SHA256SUMS-linux-x64.txt --clobber
