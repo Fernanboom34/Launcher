@@ -1,5 +1,10 @@
 # Estado para retomar Luma
 
+## Clave pública de actualizaciones (26/10/2026)
+
+- Validación: JSON correcto, base64 estricto de32bytes, OpenSSL reconoce Ed25519; lista Authenticode conservada y git diff --check limpio. Cambio de configuración/documentación, sin recompilar ni publicar binarios.
+- Rama `security/add-update-public-key`, creada desde `origin/main` 312eff2. Se añadió a `security/update-trust.json` la clave pública Ed25519 base64 proporcionada expresamente por el usuario; el binario la incorpora con include_str al compilar. No se recibió ni generó clave privada. Documentación UPDATE-SIGNING actualizada. En Windows sigue pendiente el certificado Authenticode autorizado; no se desactivó ese requisito. No se publicó una versión nueva ni se modificó main. La autorización anterior de apagado ya se consumió: no volver a apagar por este cambio.
+
 ## Cierre: beta.2, skins/modelo, contenido, ajustes y procesos (25/10)
 
 - **Publicada y verificada públicamente** https://github.com/Fernanboom34/Launcher/releases/tag/v0.8.0-beta.2-windows . Tagc9129b1, código3270fb2; diferencia posterior solo CONTINUAR. Cuatro assets descargados SIN autenticación y hashes iguales a CI: app, Setup NUEVO Inno, manifiesto y SHA256SUMS. Prerelease=true/draft=false, latest estable siguev0.7.0. EXE MSVC final abierto con datos aislados, tabla y modal borrar revisados, ExitCode0. Main local/remoto1057f3a intacta.

@@ -2,7 +2,7 @@
 
 ## Estado actual
 
-No se suministraron certificado Authenticode ni claves públicas Ed25519. `security/update-trust.json` está deliberadamente vacío y se incorpora al binario al compilar: las actualizaciones automáticas se rechazan hasta configurar la confianza. No se confía en una clave enviada por el manifiesto ni se generan claves privadas en CI. Las versiones ya publicadas conservan su comportamiento anterior: este PR no puede proteger retroactivamente esos binarios.
+`security/update-trust.json` contiene la clave pública Ed25519 proporcionada por el propietario y se incorpora al binario al compilar. Los manifiestos de actualización deben estar firmados con la clave privada correspondiente. Sigue pendiente configurar un certificado Authenticode autorizado: en Windows las actualizaciones automáticas también requieren ese certificado y una firma válida del ejecutable. No se confía en una clave enviada por el manifiesto ni se generan claves privadas en CI. Las versiones ya publicadas conservan su comportamiento anterior: este cambio no puede proteger retroactivamente esos binarios.
 
 ## Manifiesto firmado
 
