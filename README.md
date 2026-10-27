@@ -1,5 +1,7 @@
 # Luma
 
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/N4N01US8X2)
+
 ## Beta 0.8.0-beta.1-windows
 
 El selector de Minecraft muestra las versiones públicas estables y permite mostrar todas desde el desplegable. Fabric añade filtros de estables y builds, tanto al crear como al editar instancias. Inicio concentra la biblioteca; se retiran las páginas redundantes de biblioteca, versiones/descargas y actividad. Los registros del juego siguen dentro de cada instancia.
