@@ -2,7 +2,7 @@
 
 ## Estado actual
 
-`security/update-trust.json` contiene la clave pública Ed25519 proporcionada por el propietario y se incorpora al binario al compilar. Los manifiestos de actualización deben estar firmados con la clave privada correspondiente. Sigue pendiente configurar un certificado Authenticode autorizado: en Windows las actualizaciones automáticas también requieren ese certificado y una firma válida del ejecutable. No se confía en una clave enviada por el manifiesto ni se generan claves privadas en CI. Las versiones ya publicadas conservan su comportamiento anterior: este cambio no puede proteger retroactivamente esos binarios.
+`security/update-trust.json` contiene la clave pública Ed25519 proporcionada por el propietario y se incorpora al binario al compilar. Los manifiestos de actualización deben estar firmados con la clave privada correspondiente. Authenticode queda pendiente y no es un requisito del actualizador en Windows: la autenticidad depende de Ed25519 y la integridad del ejecutable de su SHA-256 firmado. No se confía en una clave enviada por el manifiesto ni se generan claves privadas en CI. Las versiones ya publicadas conservan su comportamiento anterior: este cambio no puede proteger retroactivamente esos binarios.
 
 ## Manifiesto firmado
 
@@ -21,13 +21,11 @@ El formato firma la versión, URL y hash; modificar cualquiera invalida la firma
 
 Después de revisar/verificar el artefacto en un entorno de firma confiable, ejecutar `python3 scripts/sign-update-manifest.py MANIFEST ARTEFACTO --private-key RUTA_PEM`. El script no imprime la clave y utiliza OpenSSL. No volver a firmar automáticamente cualquier artefacto de un CI potencialmente comprometido. Publicar el manifiesto firmado en un release NUEVO; no sustituir assets de releases existentes.
 
-## Authenticode en Windows
+## Authenticode en Windows (pendiente)
 
-Configurar SignPath (requiere cuenta, organización, proyecto, artefacto y política de firma) o un certificado de firma válido bajo custodia del propietario. La firma del launcher y del instalador debe hacerse después de compilar; después se calculan hashes y se firma el manifiesto. Inno `Luma-Setup.exe` se produce en scripts/test-native-installer.ps1 después del antiguo ejecutable Rust: firmar también ese archivo final.
+No se dispone de un certificado Authenticode y no se exige esta firma para descargar ni aplicar actualizaciones. Windows puede mostrar avisos de SmartScreen o de editor desconocido: Ed25519 autentica las actualizaciones para Luma, pero no proporciona reputación de editor en Windows.
 
-Añadir a `authenticode_certificate_sha256` el SHA-256 hexadecimal en minúsculas del certificado DER del firmante autorizado. El updater exige además que Windows determine `Get-AuthenticodeSignature.Status == Valid`; un certificado válido de otro editor no basta. La renovación de certificado/clave exige publicar previamente una versión que incluya ambos pines mediante una cadena de confianza revisada.
-
-Este PR no da de alta SignPath ni simula una firma Authenticode. Sin los datos y credenciales reales, la activación queda pendiente. Las descargas/manuales y los instaladores anteriores no se convierten en autenticados por añadir este verificador.
+Cuando se obtenga un certificado, se podrá integrar SignPath u otro proveedor. Firmar primero los ejecutables finales (incluido el instalador Inno `Luma-Setup.exe`), después calcular sus hashes y finalmente firmar los manifiestos con Ed25519. Cambiar un ejecutable después de generar el manifiesto invalida su hash. Cualquier futura exigencia adicional de certificado debe incorporarse explícitamente al código y distribuirse en una nueva versión.
 
 ## Orden de integración
 
