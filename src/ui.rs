@@ -1,4 +1,5 @@
 mod loss;
+mod window_shape;
 use crate::{
     auth, engine,
     model::{
@@ -1010,6 +1011,7 @@ impl eframe::App for Launcher {
                     });
                 });
         }
+        window_shape::show(ctx, self.settings.appearance.decorations);
         ctx.request_repaint_after(Duration::from_secs(10));
         if self.busy {
             ctx.request_repaint_after(Duration::from_millis(100));
