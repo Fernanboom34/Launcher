@@ -49,6 +49,8 @@ with tempfile.TemporaryDirectory(prefix='luma-package-test-') as temp:
     run('sh', str(installer), env=environment)
     installed = data / 'luma-launcher/bin/luma-launcher'
     assert installed.read_bytes() == original
+    assert (data / 'luma-launcher/LICENSE').read_bytes() == (repo / 'LICENSE').read_bytes()
+    assert f'/tree/v{version}' in (data / 'luma-launcher/SOURCE.txt').read_text()
     assert os.access(installed, os.X_OK)
     link = home / '.local/bin/luma-launcher'
     assert link.resolve() == installed
@@ -70,6 +72,8 @@ with tempfile.TemporaryDirectory(prefix='luma-package-test-') as temp:
     uninstaller = data / 'luma-launcher/uninstall.py'
     run('python3', str(uninstaller), '--uninstall', env=environment)
     assert not installed.exists() and not link.exists() and not desktop.exists()
+    assert not (data / 'luma-launcher/LICENSE').exists()
+    assert not (data / 'luma-launcher/SOURCE.txt').exists()
     assert (game / 'keep-world.dat').read_text() == 'keep'
     # An unrelated existing command must never be overwritten.
     link.write_text('unrelated command')

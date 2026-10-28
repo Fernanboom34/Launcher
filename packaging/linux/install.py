@@ -50,7 +50,9 @@ def main():
     icon = data / 'icons/hicolor/scalable/apps/luma-launcher.svg'
     uninstaller = root / 'uninstall.py'
     link = home / '.local/bin/luma-launcher'
-    files = [executable, desktop, icon, uninstaller]
+    license_notice = root / 'LICENSE'
+    source_notice = root / 'SOURCE.txt'
+    files = [executable, desktop, icon, uninstaller, license_notice, source_notice]
     for path in [root, root / 'bin', marker, *files]:
         if path.is_symlink():
             raise RuntimeError('No se sustituirá un enlace: ' + str(path))
@@ -84,7 +86,7 @@ def main():
     expected = (bundle / 'SHA256SUMS.txt').read_text().splitlines()
     for line in expected:
         checksum, filename = line.split('  ', 1)
-        if filename not in ('luma-launcher', 'install.py', 'install.sh', 'luma-launcher.svg', 'package.json'):
+        if filename not in ('luma-launcher', 'install.py', 'install.sh', 'luma-launcher.svg', 'package.json', 'LICENSE', 'SOURCE.txt'):
             raise RuntimeError('Archivo inesperado en SHA256SUMS.txt')
         if digest(bundle / filename) != checksum:
             raise RuntimeError('Falló la comprobación SHA-256: ' + filename)
@@ -103,6 +105,8 @@ def main():
     atomic_write(desktop, desktop_content.encode(), 0o644)
     atomic_write(icon, (bundle / 'luma-launcher.svg').read_bytes(), 0o644)
     atomic_write(uninstaller, Path(__file__).read_bytes(), 0o755)
+    atomic_write(license_notice, (bundle / 'LICENSE').read_bytes(), 0o644)
+    atomic_write(source_notice, (bundle / 'SOURCE.txt').read_bytes(), 0o644)
     atomic_write(marker, json.dumps({'application': 'dev.luma.Luma', 'version': metadata['version'],
                                    'files': {str(p): digest(p) for p in files}}, indent=2).encode(), 0o644)
     link.parent.mkdir(parents=True, exist_ok=True)
