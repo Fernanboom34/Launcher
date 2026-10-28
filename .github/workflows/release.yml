@@ -144,4 +144,5 @@ jobs:
           (cd linux && sha256sum -c SHA256SUMS-linux-x64.txt)
           assets=(windows/Luma-0.8.1.exe windows/Luma-Setup.exe windows/luma-release.json windows/SHA256SUMS.txt
                   linux/Luma-0.8.1-linux-x64 linux/Luma-0.8.1-linux-x64.tar.gz linux/luma-launcher_0.8.1_amd64.deb linux/luma-release-linux-x64.json linux/SHA256SUMS-linux-x64.txt)
+          assets+=(LICENSE)
           gh release create v0.8.1 --target "$GITHUB_SHA" --draft --title 'Luma 0.8.1 — Windows y Linux x64' --notes-file docs/RELEASE-0.8.1.md "${assets[@]}"

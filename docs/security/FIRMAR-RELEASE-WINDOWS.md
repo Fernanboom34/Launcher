@@ -21,7 +21,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\publish-signed-rel
 
 El permiso de ejecución se aplica solo a ese proceso; no cambia la política permanente del equipo. Si el PEM está cifrado, OpenSSL puede pedir su contraseña en tu terminal; no la escribas en el comando ni en GitHub.
 
-El script descarga el launcher Windows y Linux y sus manifiestos desde el borrador. Comprueba sus hashes, la versión, las URLs y que la clave privada corresponde a la pública de Luma. Firma los dos manifiestos, sube **solo los JSON firmados** y publica 0.8.1 como estable. Nunca sube la clave privada. No modifica los ejecutables ni permite reemplazar assets de un release ya publicado.
+El script descarga el launcher Windows y Linux y sus manifiestos desde el borrador. Comprueba sus hashes, la versión, las URLs y que la clave privada corresponde a la pública de Luma. Firma los dos manifiestos, actualiza la suma del manifiesto Linux, sube **solo los JSON firmados y las sumas Linux** y publica 0.8.1 como estable. Nunca sube la clave privada. No modifica los ejecutables ni permite reemplazar assets de un release ya publicado.
 
 Si algo falla, conserva el mensaje de error, sin incluir claves ni contraseñas. El script no publica si falla una firma. Si la subida queda incompleta, se puede repetir mientras el release siga siendo borrador.
 

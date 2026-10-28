@@ -36,17 +36,20 @@ trust = json.loads((Path(__file__).resolve().parent.parent / 'security/update-tr
 if len(public) != 44 or not public.startswith(prefix) or base64.b64encode(public[12:]).decode() not in trust['ed25519_public_keys']:
     parser.error('La clave privada no corresponde a una clave pública Ed25519 confiable de Luma.')
 manifest = json.loads(args.manifest.read_text())
-assert args.artifact.name == manifest['url'].split('/')[-1], 'El artefacto no corresponde a la URL'
+if args.artifact.name != manifest['url'].split('/')[-1]:
+    parser.error('El artefacto no corresponde a la URL')
 digest = hashlib.sha256()
 with args.artifact.open('rb') as artifact:
     for chunk in iter(lambda: artifact.read(65536), b''):
         digest.update(chunk)
-assert digest.hexdigest() == manifest['sha256'], 'Hash del artefacto incorrecto'
+if digest.hexdigest() != manifest['sha256']:
+    parser.error('Hash del artefacto incorrecto')
 payload = ('Luma update manifest v1\n' + manifest['version'] + '\n' + manifest['url'] + '\n' + manifest['sha256'] + '\n').encode()
 with tempfile.TemporaryDirectory(prefix='luma-sign-') as folder:
     source = Path(folder) / 'payload'
     source.write_bytes(payload)
     signature = subprocess.run([openssl, 'pkeyutl', '-sign', '-rawin', '-inkey', str(args.private_key), '-in', str(source)], check=True, stdout=subprocess.PIPE).stdout
-assert len(signature) == 64, 'Se requiere una clave Ed25519'
+if len(signature) != 64:
+    parser.error('Se requiere una clave Ed25519')
 manifest['signature'] = base64.b64encode(signature).decode()
 args.manifest.write_text(json.dumps(manifest, indent=2) + '\n')
