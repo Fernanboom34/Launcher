@@ -27,8 +27,6 @@ pub struct Release {
 #[derive(Deserialize)]
 struct UpdateTrust {
     ed25519_public_keys: Vec<String>,
-    #[allow(dead_code)]
-    authenticode_certificate_sha256: Vec<String>,
 }
 fn update_trust() -> Result<UpdateTrust> {
     Ok(serde_json::from_str(include_str!(
@@ -88,23 +86,6 @@ fn staged_release(staged: &Path) -> Result<Release> {
     let release: Release = serde_json::from_slice(&bytes)?;
     verify_release(&release)?;
     Ok(release)
-}
-#[cfg(windows)]
-fn verify_authenticode(path: &Path) -> Result<()> {
-    let trust = update_trust()?;
-    anyhow::ensure!(
-        !trust.authenticode_certificate_sha256.is_empty(),
-        "Actualización bloqueada: no hay certificado Authenticode confiable configurado"
-    );
-    let allowed = trust
-        .authenticode_certificate_sha256
-        .iter()
-        .map(|s| quote(s))
-        .collect::<Vec<_>>()
-        .join(",");
-    let script = format!("$signature=Get-AuthenticodeSignature -LiteralPath {};if($signature.Status -ne 'Valid'){{throw 'Firma Authenticode inválida'}};$hash=[Security.Cryptography.SHA256]::Create();try{{$fingerprint=[BitConverter]::ToString($hash.ComputeHash($signature.SignerCertificate.RawData)).Replace('-','').ToLowerInvariant()}}finally{{$hash.Dispose()}};if(@({}) -notcontains $fingerprint){{throw 'Certificado Authenticode no confiable'}}",quote(&path.to_string_lossy()),allowed);
-    ps_output(&script)?;
-    Ok(())
 }
 fn client() -> Result<reqwest::blocking::Client> {
     Ok(reqwest::blocking::Client::builder()
@@ -214,8 +195,6 @@ pub fn download(release: &Release, target: &Path, status: &Sender<String>) -> Re
             "La descarga no coincide con su SHA-256"
         );
         validate_executable(&part)?;
-        #[cfg(windows)]
-        verify_authenticode(&part)?;
         #[cfg(target_os = "linux")]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -337,7 +316,6 @@ pub fn is_program_installation(path: &Path) -> bool {
 #[cfg(windows)]
 pub fn install_application(release: &Release, staged: &Path, setup: &Path) -> Result<()> {
     verify_release(release)?;
-    verify_authenticode(staged)?;
     elevate(&installation_script(
         release,
         staged,
