@@ -46,7 +46,7 @@ def openssl_path():
 
 
 class SkinService:
-    def __init__(self, name, skin, slim=False):
+    def __init__(self, name, skin, slim=False, peers=()):
         self.requests = {"metadata": 0, "profile": 0, "texture": 0}
         self.name, self.uuid = name, offline_uuid(name)
         path = Path(skin)
@@ -110,17 +110,22 @@ class SkinService:
                 if not route:
                     owner.requests["metadata"] += 1
                     self.reply(200, {'meta': {'serverName': 'Luma local skins (experimental)', 'implementationName': 'Luma prototype', 'implementationVersion': '0.9.0-alpha.1', 'feature.no_mojang_namespace': True, 'feature.enable_mojang_anti_features': True}, 'skinDomains': ['127.0.0.1'], 'signaturePublickey': owner.public})
-                elif route == 'textures/' + owner.texture_hash:
+                elif route.startswith('textures/') and route[9:] in owner.images:
                     owner.requests['texture'] += 1
-                    self.reply(200, owner.png, 'image/png')
-                elif route == 'sessionserver/session/minecraft/profile/' + owner.uuid:
-                    owner.requests['profile'] += 1
-                    unsigned = parse_qs(urlsplit(self.path).query).get('unsigned', ['true'])[0] != 'false'
-                    self.reply(200, owner.profile(unsigned))
-                elif route == 'api/users/profiles/minecraft/' + owner.name:
-                    self.reply(200, {'id': owner.uuid, 'name': owner.name})
+                    self.reply(200, owner.images[route[9:]], 'image/png')
                 elif route.startswith('sessionserver/session/minecraft/profile/'):
-                    self.reply(204)
+                    owner.requests['profile'] += 1
+                    profile = owner.profiles.get(route.rsplit('/',1)[-1])
+                    if profile is None:
+                        self.reply(204)
+                    else:
+                        profile = json.loads(json.dumps(profile))
+                        if parse_qs(urlsplit(self.path).query).get('unsigned',['true'])[0] != 'false':
+                            profile['properties'][0].pop('signature',None)
+                        self.reply(200, profile)
+                elif route.startswith('api/users/profiles/minecraft/'):
+                    uuid = owner.names.get(route.rsplit('/',1)[-1].lower())
+                    self.reply(200, {'id':uuid,'name':owner.profiles[uuid]['name']}) if uuid else self.reply(204)
                 else:
                     self.reply(404)
 
@@ -140,7 +145,7 @@ class SkinService:
                     names = json.loads(self.rfile.read(length))
                     if not isinstance(names, list) or len(names) > 100 or not all(isinstance(n, str) and len(n) <= 16 for n in names):
                         raise ValueError()
-                    self.reply(200, [{'id': owner.uuid, 'name': owner.name}] if any(n.lower() == owner.name.lower() for n in names) else [])
+                    self.reply(200, [{'id': uuid, 'name': owner.profiles[uuid]['name']} for uuid in dict.fromkeys(owner.names[n.lower()] for n in names if n.lower() in owner.names)])
                 except (ValueError, UnicodeError):
                     self.reply(400)
 
@@ -170,6 +175,30 @@ class SkinService:
         # SHA1withRSA is mandated by the Yggdrasil texture protocol. It is unrelated to update signing.
         signature = subprocess.run([self.openssl, 'dgst', '-sha1', '-sign', str(self.key)], input=value.encode(), stdout=subprocess.PIPE, check=True).stdout
         self.property = {'name': 'textures', 'value': value, 'signature': base64.b64encode(signature).decode()}
+        self.profiles = {self.uuid: self.profile(False)}
+        self.names = {name.lower(): self.uuid}
+        self.images = {self.texture_hash: self.png}
+        try:
+            for peer_name, png, peer_slim in peers:
+                uuid = offline_uuid(peer_name)
+                if (len(png) < 33 or len(png) > 1024 * 1024 or png[:8] != b'\x89PNG\r\n\x1a\n' or png[12:16] != b'IHDR'
+                        or struct.unpack('>II', png[16:24]) not in [(64,64),(64,32)]):
+                    raise ValueError('Skin web con cabecera o dimensiones inválidas.')
+                digest = hashlib.sha256(png).hexdigest()
+                if peer_name.lower() in self.names:
+                    if peer_name != name or digest != self.texture_hash or peer_slim != slim:
+                        raise ValueError('La skin local no coincide con el directorio compartido.')
+                    continue
+                value = base64.b64encode(json.dumps({'timestamp': int(time.time()*1000), 'profileId': uuid, 'profileName': peer_name,
+                    'textures': {'SKIN': {'url': self.url+'textures/'+digest,'metadata': {'model':'slim' if peer_slim else 'default'}}}},separators=(',',':')).encode()).decode()
+                signature = subprocess.run([self.openssl,'dgst','-sha1','-sign',str(self.key)],input=value.encode(),stdout=subprocess.PIPE,check=True).stdout
+                self.profiles[uuid] = {'id':uuid,'name':peer_name,'properties':[{'name':'textures','value':value,'signature':base64.b64encode(signature).decode()}]}
+                self.names[peer_name.lower()] = uuid
+                self.images[digest] = png
+        except BaseException:
+            self.server.server_close()
+            self.temporary.cleanup()
+            raise
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
 
@@ -214,6 +243,7 @@ def main():
     parser.add_argument('--name', required=True)
     parser.add_argument('--skin', type=Path, required=True)
     parser.add_argument('--slim', action='store_true')
+    parser.add_argument('--registry', help='URL HTTPS del directorio experimental fijada a un commit.')
     parser.add_argument('--agent', type=Path, required=True)
     parser.add_argument('--launcher', type=Path)
     parser.add_argument('--data-dir', type=Path)
@@ -224,7 +254,9 @@ def main():
         parser.error('El agente no coincide con authlib-injector 1.2.8 fijado en este prototipo.')
     if args.launcher and not args.data_dir:
         parser.error('--launcher requiere una carpeta --data-dir experimental.')
-    service = SkinService(args.name, args.skin, args.slim)
+    from web_registry import load_registry
+    peers = load_registry(args.registry) if args.registry else ()
+    service = SkinService(args.name, args.skin, args.slim, peers)
     try:
         agent_arg = '-javaagent:' + str(args.agent.resolve()) + '=' + service.url
         if not args.launcher:

@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "players": [
+    {
+      "name": "LumaWebA",
+      "file": "red.png",
+      "sha256": "266dea8436b65b368a2f4480d37dd9fa4ebbdf2dfa82735ddd24260a3a6dc1e2",
+      "slim": false
+    },
+    {
+      "name": "LumaWebB",
+      "file": "blue.png",
+      "sha256": "5242165aff176c8cf0c00a439de526acb05e57f3eca5284a0696334c03a1a796",
+      "slim": false
+    }
+  ]
+}

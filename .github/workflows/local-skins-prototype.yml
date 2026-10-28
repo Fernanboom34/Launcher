@@ -3,7 +3,7 @@ on:
   pull_request:
     paths: ['experiments/local-skins/**', '.github/workflows/local-skins-prototype.yml']
   push:
-    branches: ['experiment/local-skin-prototype']
+    branches: ['experiment/local-skin-prototype', 'experiment/web-skin-registry']
     paths: ['experiments/local-skins/**', '.github/workflows/local-skins-prototype.yml']
   workflow_dispatch:
 permissions:
@@ -19,4 +19,4 @@ jobs:
         with:
           persist-credentials: false
       - name: Verificar servicio aislado y firmas de texturas
-        run: python experiments/local-skins/test_prototype.py
+        run: python -m unittest discover -s experiments/local-skins -p 'test_*.py'
