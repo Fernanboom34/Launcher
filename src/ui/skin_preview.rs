@@ -4,20 +4,39 @@ type Face = (f32, [[f32; 3]; 4], [f32; 4], Color32);
 
 // Horizontal and vertical axes must both be perpendicular to the view direction.
 // Positive depth faces the camera; the camera is slightly above the model.
+#[cfg(test)]
 fn project(point: [f32; 3], yaw: f32) -> [f32; 3] {
+    project_view(point, yaw, 0.22_f32.atan())
+}
+fn project_view(point: [f32; 3], yaw: f32, pitch: f32) -> [f32; 3] {
     let x = point[0] * yaw.cos() - point[2] * yaw.sin();
     let z = point[0] * yaw.sin() + point[2] * yaw.cos();
-    [x, point[1] - z * 0.22, z + point[1] * 0.22]
+    [
+        x,
+        point[1] * pitch.cos() - z * pitch.sin(),
+        z * pitch.cos() + point[1] * pitch.sin(),
+    ]
 }
 
 // Static, pixel-exact skin cuboids. No animation loop or extra rendering engine.
 pub(super) fn draw(ui: &egui::Ui, rect: Rect, texture: egui::TextureId, slim: bool, yaw: f32) {
+    draw_view(ui, rect, texture, slim, yaw, 0.22_f32.atan(), true);
+}
+pub(super) fn draw_view(
+    ui: &egui::Ui,
+    rect: Rect,
+    texture: egui::TextureId,
+    slim: bool,
+    yaw: f32,
+    pitch: f32,
+    outer: bool,
+) {
     let arm = if slim { 3. } else { 4. };
     let mut faces: Vec<Face> = Vec::new();
     let mut cube = |bounds: [f32; 6], origin: [f32; 2], dims: [f32; 3], overlay: bool| {
         let [mut x0, mut y0, mut z0, mut x1, mut y1, mut z1] = bounds;
         if overlay {
-            let e = 0.23;
+            let e = if dims[1] == 8. { 0.5 } else { 0.25 };
             x0 -= e;
             y0 -= e;
             z0 -= e;
@@ -65,15 +84,45 @@ pub(super) fn draw(ui: &egui::Ui, rect: Rect, texture: egui::TextureId, slim: bo
                 0.65,
             ),
         ];
-        for (points, uv, normal, shade) in quads {
-            if normal[0] * yaw.sin() + normal[2] * yaw.cos() + normal[1] * 0.22 <= 0. {
+        for (mut points, uv, mut normal, shade) in quads {
+            // A slight relaxed shoulder angle separates the sleeves from the torso.
+            let side = if dims[1] == 12.
+                && (origin[0] == 40. || origin == [48., 48.] || origin == [32., 48.])
+            {
+                if bounds[3] <= -4. {
+                    -1.
+                } else {
+                    1.
+                }
+            } else {
+                0.
+            };
+            let angle: f32 = side * 0.075;
+            if side != 0. {
+                let pivot = side * (4. + arm / 2.);
+                for point in &mut points {
+                    let (x, y) = (point[0] - pivot, point[1] - 24.);
+                    point[0] = pivot + x * angle.cos() - y * angle.sin();
+                    point[1] = 24. + x * angle.sin() + y * angle.cos();
+                }
+                normal = [
+                    normal[0] * angle.cos() - normal[1] * angle.sin(),
+                    normal[0] * angle.sin() + normal[1] * angle.cos(),
+                    normal[2],
+                ];
+            }
+            if project_view(normal, yaw, pitch)[2] <= 0. {
                 continue;
             }
-            let depth = points.iter().map(|p| project(*p, yaw)[2]).sum::<f32>() / 4.;
+            let depth = points
+                .iter()
+                .map(|p| project_view(*p, yaw, pitch)[2])
+                .sum::<f32>()
+                / 4.;
             faces.push((depth, points, uv, Color32::from_gray((shade * 255.) as u8)));
         }
     };
-    for layer in [false, true] {
+    for layer in [false, true].into_iter().filter(|layer| !*layer || outer) {
         cube(
             [-4., 24., -4., 4., 32., 4.],
             if layer { [32., 0.] } else { [0., 0.] },
@@ -125,7 +174,7 @@ pub(super) fn draw(ui: &egui::Ui, rect: Rect, texture: egui::TextureId, slim: bo
             .into_iter()
             .zip([[u, v], [u + w, v], [u + w, v + h], [u, v + h]])
         {
-            let [x, y, _] = project(point, yaw);
+            let [x, y, _] = project_view(point, yaw, pitch);
             mesh.vertices.push(Vertex {
                 pos: Pos2::new(center.x + x * scale, center.y - y * scale),
                 uv: Pos2::new(uv[0] / 64., uv[1] / 64.),

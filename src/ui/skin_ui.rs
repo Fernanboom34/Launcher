@@ -7,6 +7,8 @@ pub(super) struct State {
     pub textures: HashMap<String, egui::TextureHandle>,
     pub(super) preview: Option<String>,
     yaw: f32,
+    pitch: f32,
+    outer: bool,
     edit: bool,
     name: String,
     slim: bool,
@@ -25,6 +27,8 @@ impl Default for State {
             textures: HashMap::new(),
             preview: None,
             yaw: 0.35,
+            pitch: 0.22_f32.atan(),
+            outer: true,
             edit: false,
             name: String::new(),
             slim: false,
@@ -177,11 +181,13 @@ impl Launcher {
                 ui.label(RichText::new(&account.name).size(23.).strong());
                 ui.label(if account.local{"Cuenta local"}else{"Cuenta de Minecraft"});
                 let (rect,response)=ui.allocate_exact_size(Vec2::new(260.,330.),Sense::drag());
-                if response.dragged(){self.skins.yaw-=ui.input(|i|i.pointer.delta().x)*0.012;}
+                if response.dragged(){let delta=ui.input(|i|i.pointer.delta());self.skins.yaw=(self.skins.yaw-delta.x*0.012).rem_euclid(std::f32::consts::TAU);self.skins.pitch=(self.skins.pitch+delta.y*0.008).clamp(-0.65,0.85);}
+                if response.double_clicked(){self.skins.yaw=0.35;self.skins.pitch=0.22_f32.atan();}
                 if let Some(skin)=&current {
-                    if let Some(texture)=self.skin_texture(ui.ctx(),skin){super::skin_preview::draw(ui,rect,texture,skin.slim,self.skins.yaw);}
+                    if let Some(texture)=self.skin_texture(ui.ctx(),skin){super::skin_preview::draw_view(ui,rect,texture,skin.slim,self.skins.yaw,self.skins.pitch,self.skins.outer);}
                     ui.label(RichText::new(&skin.name).strong());
-                    ui.label(RichText::new("Arrastra el modelo para girarlo").small().color(palette().muted));
+                    ui.label(RichText::new("Arrastra para girar e inclinar · doble clic para centrar").small().color(palette().muted));
+                    ui.horizontal(|ui|{ui.checkbox(&mut self.skins.outer,"Segunda capa");if ui.small_button("Centrar").clicked(){self.skins.yaw=0.35;self.skins.pitch=0.22_f32.atan();}});
                     if ui.add_enabled(!self.busy,egui::Button::new("Editar skin")).clicked(){self.skins.edit=true;self.skins.name=skin.name.clone();self.skins.slim=skin.slim;self.skins.replacement=None;}
                     if account.local {
                         ui.add_space(12.);ui.label("Aplicar en una instancia");
@@ -189,12 +195,13 @@ impl Launcher {
                         let instance=self.installations.iter().find(|p|p.id==self.skins.instance).cloned();
                         egui::ComboBox::from_id_salt("skin_instance").width(250.).selected_text(instance.as_ref().map(|p|p.name.as_str()).unwrap_or("Elige una instancia")).show_ui(ui,|ui|{for p in &self.installations{ui.selectable_value(&mut self.skins.instance,p.id.clone(),format!("{} · {}",p.name,p.loader.label()));}});
                         ui.label(RichText::new("Descarga CustomSkinLoader y sus dependencias compatibles desde Modrinth.").small().color(palette().muted));
-                        if ui.add_enabled(!self.busy && instance.as_ref().is_some_and(|p|!self.is_running(p)),primary("Instalar mod y aplicar skin")).clicked(){
+                        if instance.as_ref().is_some_and(|p|p.loader==Loader::Vanilla){ui.label("Vanilla no carga skins personales de perfiles locales. Usa tu cuenta Microsoft con Minecraft para aplicar una skin sin mods.");}
+                        if ui.add_enabled(!self.busy && instance.as_ref().is_some_and(|p|p.loader!=Loader::Vanilla && !self.is_running(p)),primary("Instalar mod y aplicar skin")).clicked(){
                             let root=self.root.clone();let skin=skin.clone();let name=account.name.clone();let id=account.id.clone();let profile=instance.clone().unwrap();
                             self.work(move|tx|{skins::apply_local(&root,&skin,&name,&profile,|s|{let _=tx.send(Event::Status(s));})?;let mut library=Library::load(&root)?;library.selected.insert(id,skin.id);library.save(&root)?;tx.send(Event::SkinsChanged)?;tx.send(Event::ContentChanged(profile.id))?;Ok(())});
                         }
                         ui.label(RichText::new("Visible en esta instancia. Otros jugadores necesitan su propia configuración de skins.").small().color(palette().muted));
-                        if ui.add_enabled(!self.busy && instance.as_ref().is_some_and(|p|!self.is_running(p)),egui::Button::new("Desactivar skin local")).clicked(){let root=self.root.clone();let name=account.name.clone();let id=account.id.clone();let profile=instance.unwrap();self.work(move|tx|{skins::disable_local(&name,&profile.game_dir)?;let mut l=Library::load(&root)?;l.selected.remove(&id);l.save(&root)?;tx.send(Event::SkinsChanged)?;tx.send(Event::Status("Skin local desactivada. El mod se conserva para otras skins.".into()))?;Ok(())});}
+                        if ui.add_enabled(!self.busy && instance.as_ref().is_some_and(|p|p.loader!=Loader::Vanilla && !self.is_running(p)),egui::Button::new("Desactivar skin local")).clicked(){let root=self.root.clone();let name=account.name.clone();let id=account.id.clone();let profile=instance.unwrap();self.work(move|tx|{skins::disable_local(&name,&profile.game_dir)?;let mut l=Library::load(&root)?;l.selected.remove(&id);l.save(&root)?;tx.send(Event::SkinsChanged)?;tx.send(Event::Status("Skin local desactivada. El mod se conserva para otras skins.".into()))?;Ok(())});}
                     }else{
                         if ui.add_enabled(!self.busy && session.is_some(),primary("Aplicar a mi cuenta")).clicked(){let root=self.root.clone();let skin=skin.clone();let id=account.id.clone();let session=session.clone().unwrap();self.work(move|tx|{skins::apply_account(&root,&skin,&session)?;let mut l=Library::load(&root)?;l.selected.insert(id,skin.id);l.save(&root)?;tx.send(Event::SkinsChanged)?;tx.send(Event::Status("Skin aplicada a tu cuenta Minecraft".into()))?;Ok(())});}
                         if session.is_none(){ui.label("Inicia sesión con Microsoft para aplicar skins y capas.");}
