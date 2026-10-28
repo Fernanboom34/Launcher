@@ -213,3 +213,9 @@ En **Contenido**, carga mods, resource packs, shaders o data packs ZIP. Para est
 Los registros del proceso están en `<instancia>/.luma/logs/game-latest.log`; los que genera Minecraft siguen en `logs/`. La página Registros admite búsqueda, filtros de nivel y archivos históricos `.log`/`.txt`. Se mantiene en pantalla una cola de hasta 512 KiB para no cargar registros enormes.
 
 `LUMA_DATA_DIR` permite usar una carpeta de datos independiente para pruebas o instalaciones separadas. No modifica la ubicación habitual si no está definido.
+
+## Licencia
+
+Luma se distribuye bajo la [GNU General Public License, versión 3](LICENSE) (`GPL-3.0-only`). Puedes usar, estudiar, modificar y redistribuir el proyecto conforme a sus términos. Si distribuyes versiones modificadas, debes proporcionar el código fuente correspondiente bajo GPLv3 conforme a la licencia.
+
+Las dependencias y los componentes de terceros conservan sus respectivas licencias. Esta licencia no obliga al mantenedor a aceptar contribuciones ni concede acceso de escritura al repositorio.
