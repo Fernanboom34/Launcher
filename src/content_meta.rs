@@ -50,7 +50,7 @@ fn zip_bytes(zip: &mut zip::ZipArchive<fs::File>, path: &str, limit: u64) -> Opt
     file.take(limit + 1).read_to_end(&mut bytes).ok()?;
     ((bytes.len() as u64) <= limit).then_some(bytes)
 }
-fn save_icon(folder: &Path, key: &str, bytes: &[u8]) -> Option<PathBuf> {
+pub(crate) fn save_icon(folder: &Path, key: &str, bytes: &[u8]) -> Option<PathBuf> {
     if bytes.len() > 1024 * 1024 {
         return None;
     }

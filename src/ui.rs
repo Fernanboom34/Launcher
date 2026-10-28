@@ -986,7 +986,7 @@ impl eframe::App for Launcher {
         loss::show(ctx);
         self.instance_windows(ctx);
         self.workspace_windows(ctx);
-        self.catalog_window(ctx);
+
         if let Some((id, mut name)) = self.rename_profile.clone() {
             egui::Window::new("Renombrar perfil")
                 .collapsible(false)

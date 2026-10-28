@@ -50,6 +50,7 @@ pub(super) struct Workspace {
 }
 impl Launcher {
     pub(super) fn open_instance(&mut self, p: &GameProfile) {
+        self.catalog.open = false;
         self.select_instance(p);
         self.page = Page::Instance;
         self.workspace.tab = 0;
@@ -235,12 +236,16 @@ impl Launcher {
                 });
             });
         ui.add_space(12.);
-        match self.workspace.tab {
-            0 => self.content_page(ui, &p),
-            1 => self.files_page(ui, &p),
-            2 => self.worlds_page(ui, &p),
-            3 => self.logs_page(ui, &p),
-            _ => self.logs_page(ui, &p),
+        if self.catalog.open && self.workspace.tab == 0 {
+            self.catalog_page(ui);
+        } else {
+            match self.workspace.tab {
+                0 => self.content_page(ui, &p),
+                1 => self.files_page(ui, &p),
+                2 => self.worlds_page(ui, &p),
+                3 => self.logs_page(ui, &p),
+                _ => self.logs_page(ui, &p),
+            }
         }
         self.content_import(ui.ctx(), &p);
     }
