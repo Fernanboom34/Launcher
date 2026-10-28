@@ -1,0 +1,22 @@
+name: Prototipo de skins locales
+on:
+  pull_request:
+    paths: ['experiments/local-skins/**', '.github/workflows/local-skins-prototype.yml']
+  push:
+    branches: ['experiment/local-skin-prototype']
+    paths: ['experiments/local-skins/**', '.github/workflows/local-skins-prototype.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  loopback-protocol:
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Verificar servicio aislado y firmas de texturas
+        run: python experiments/local-skins/test_prototype.py
