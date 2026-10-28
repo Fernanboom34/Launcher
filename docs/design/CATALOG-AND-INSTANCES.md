@@ -6,9 +6,11 @@ Referencia consultada: repositorio público [modrinth/code](https://github.com/m
 
 La referencia `apps/app-frontend/src/platform/adapters/browse/browse-page.vue` separa búsqueda, preferencias de instalación, destino y resolución del plan. Usa componentes Vue y servicios que no son intercambiables con egui. Luma ya usa la API oficial de Modrinth: el problema no es sustituir un catálogo ficticio, sino mejorar su interacción y sus estados.
 
-Primera entrega: búsqueda automática con pausa breve, resultados separados del detalle y regreso sin perder consulta ni página, ventana adaptada al espacio disponible, estados de carga de versiones y bloqueo de instalación sobre una instancia ejecutándose. Se conserva la selección explícita de versión y la instalación de dependencias existente. Las respuestas antiguas no deben sobrescribir una búsqueda posterior.
+El catálogo ocupa el área de Contenido al pulsar Explorar contenido. Incluye búsqueda automática, tarjetas con iconos y autores, selección de tipo, resultados paginados y regreso a los archivos instalados. Los iconos HTTPS del CDN de Modrinth se limitan a 1 MiB y 1024×1024 antes de reducirlos y guardarlos; se admiten PNG, JPEG y WebP.
 
-Próximas entregas: iconos con caché y límites de descarga, ordenación y categorías, estado instalado/actualizable por proyecto, acción de instalación compatible desde resultados y confirmación clara del destino. Los data packs deben seguir eligiendo un mundo explícito; cambiar de tipo no puede reutilizar un destino inadecuado.
+Instalar consulta y filtra versiones por Minecraft y loader, ordena release antes que beta y alpha y fecha descendente dentro de cada categoría. Elegir versión permite escoger manualmente otra versión compatible, mostrando categoría y fecha. La compatibilidad declarada con juego y loader no garantiza que todos los mods funcionen juntos. Se mantiene el instalador de dependencias y sus validaciones. La instalación se bloquea durante la ejecución de la instancia o con el navegador de contenido abierto.
+
+Pendiente: ordenación y filtros avanzados, estado instalado/actualizable por identificador de proyecto y un resumen explícito de conflictos entre mods. Los data packs conservan su destino de mundo; cambiar a otro tipo descarta ese destino.
 
 ## Instancias
 

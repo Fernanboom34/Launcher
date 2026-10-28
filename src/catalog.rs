@@ -46,6 +46,8 @@ impl Kind {
 }
 #[derive(Clone, Deserialize)]
 pub struct Project {
+    #[serde(default)]
+    pub icon_url: Option<String>,
     pub project_id: String,
     pub title: String,
     pub description: String,
@@ -60,6 +62,10 @@ pub struct Search {
 }
 #[derive(Clone, Deserialize)]
 pub struct Version {
+    #[serde(default)]
+    pub version_type: String,
+    #[serde(default)]
+    pub date_published: String,
     pub id: String,
     pub project_id: String,
     pub name: String,
@@ -156,10 +162,27 @@ pub fn versions(profile: &GameProfile, kind: Kind, project: &str) -> Result<Vec<
         .send()?
         .error_for_status()?
         .json()?;
-    Ok(versions
+    let mut versions: Vec<_> = versions
         .into_iter()
         .filter(|v| compatible(v, profile, kind))
-        .collect())
+        .collect();
+    sort_versions(&mut versions);
+    Ok(versions)
+}
+fn sort_versions(versions: &mut [Version]) {
+    versions.sort_by(|a, b| {
+        channel_rank(&a.version_type)
+            .cmp(&channel_rank(&b.version_type))
+            .then_with(|| b.date_published.cmp(&a.date_published))
+    });
+}
+fn channel_rank(channel: &str) -> u8 {
+    match channel {
+        "release" => 0,
+        "beta" => 1,
+        "alpha" => 2,
+        _ => 3,
+    }
 }
 fn compatible(v: &Version, p: &GameProfile, kind: Kind) -> bool {
     v.game_versions.contains(&p.minecraft)
@@ -528,8 +551,35 @@ pub(crate) fn test_profile() -> GameProfile {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn installation_prefers_release_then_beta_then_alpha_and_newest_within_channel() {
+        let mut versions = vec![
+            version("old-release", "p", None),
+            version("new-release", "p", None),
+            version("beta", "p", None),
+            version("alpha", "p", None),
+        ];
+        versions[0].date_published = "2025-01-01T00:00:00Z".into();
+        versions[1].date_published = "2026-01-01T00:00:00Z".into();
+        versions[2].version_type = "beta".into();
+        versions[2].date_published = "2027-01-01T00:00:00Z".into();
+        versions[3].version_type = "alpha".into();
+        versions[3].date_published = "2028-01-01T00:00:00Z".into();
+        sort_versions(&mut versions);
+        assert_eq!(
+            versions.iter().map(|v| v.id.as_str()).collect::<Vec<_>>(),
+            vec!["new-release", "old-release", "beta", "alpha"]
+        );
+        versions.retain(|v| v.version_type != "release");
+        sort_versions(&mut versions);
+        assert_eq!(versions[0].id, "beta");
+        versions.retain(|v| v.version_type != "beta");
+        assert_eq!(versions[0].id, "alpha");
+    }
     fn version(name: &str, project: &str, dependency: Option<&str>) -> Version {
         Version {
+            version_type: "release".into(),
+            date_published: String::new(),
             id: name.into(),
             project_id: project.into(),
             name: name.into(),
