@@ -20,6 +20,7 @@ pub(super) struct State {
     loading: bool,
     error: Option<String>,
     generation: u64,
+    search_due: Option<Instant>,
     tx: Option<Sender<Message>>,
     rx: Option<Receiver<Message>>,
 }
@@ -46,6 +47,7 @@ impl State {
         });
     }
     fn versions(&mut self, project: Project) {
+        self.search_due = None;
         let (Some(profile), Some(kind), Some(tx)) =
             (self.profile.clone(), self.kind, self.tx.clone())
         else {
@@ -115,6 +117,11 @@ impl Launcher {
     pub(super) fn catalog_window(&mut self, ctx: &egui::Context) {
         let mut state = std::mem::take(&mut self.catalog);
         state.poll();
+        if state.search_due.is_some_and(|due| Instant::now() >= due) {
+            state.search_due = None;
+            state.offset = 0;
+            state.search();
+        }
         if !state.open {
             self.catalog = state;
             return;
@@ -128,7 +135,7 @@ impl Launcher {
         let mut install = None;
         egui::Window::new("Explorar contenido · Modrinth")
             .open(&mut open)
-            .default_size([860., 650.])
+            .default_size((ctx.screen_rect().size() * 0.85).min(Vec2::new(1100., 800.)))
             .min_size([650., 450.])
             .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
             .show(ctx, |ui| {
@@ -151,20 +158,27 @@ impl Launcher {
                         .small(),
                     );
                 }
-                ui.horizontal(|ui| {
-                    let edit = ui.add(
-                        egui::TextEdit::singleline(&mut state.query)
-                            .hint_text("Buscar mods, packs, shaders…")
-                            .desired_width((ui.available_width() - 110.).max(150.)),
-                    );
-                    if ui.add_enabled(!state.loading, primary("Buscar")).clicked()
-                        || (edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
-                    {
-                        state.offset = 0;
-                        state.search();
-                    }
-                });
-                if state.loading {
+                if state.selected.is_none() {
+                    ui.horizontal(|ui| {
+                        let edit = ui.add(
+                            egui::TextEdit::singleline(&mut state.query)
+                                .hint_text("Buscar mods, packs, shaders…")
+                                .desired_width((ui.available_width() - 110.).max(150.)),
+                        );
+                        if edit.changed() {
+                            state.generation += 1;
+                            state.search_due = Some(Instant::now() + Duration::from_millis(350));
+                        }
+                        if ui.add_enabled(!state.loading, primary("Buscar")).clicked()
+                            || (edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
+                        {
+                            state.search_due = None;
+                            state.offset = 0;
+                            state.search();
+                        }
+                    });
+                }
+                if state.loading || state.search_due.is_some() {
                     ui.horizontal(|ui| {
                         ui.spinner();
                         ui.label("Buscando contenido compatible…");
@@ -174,6 +188,13 @@ impl Launcher {
                     ui.colored_label(Color32::from_rgb(245, 110, 120), error);
                 }
                 if let Some(project) = state.selected.clone() {
+                    if ui.button("← Volver a los resultados").clicked() {
+                        state.generation += 1;
+                        state.selected = None;
+                        state.loading = false;
+                        state.error = None;
+                        state.versions.clear();
+                    }
                     card().inner_margin(12.).show(ui, |ui| {
                         ui.set_min_width(ui.available_width());
                         ui.strong(&project.title);
@@ -184,17 +205,25 @@ impl Launcher {
                                     .versions
                                     .get(state.version)
                                     .map(|v| v.version_number.as_str())
-                                    .unwrap_or("Sin versiones compatibles"),
+                                    .unwrap_or(if state.loading {
+                                        "Cargando versiones…"
+                                    } else {
+                                        "Sin versiones compatibles"
+                                    }),
                             )
                             .show_ui(ui, |ui| {
                                 for (i, version) in state.versions.iter().enumerate() {
                                     ui.selectable_value(&mut state.version, i, &version.name);
                                 }
                             });
+                        if self.is_running(&profile) {
+                            ui.label("Detén esta instancia antes de instalar contenido.");
+                        }
                         ui.horizontal(|ui| {
                             if ui
                                 .add_enabled(
                                     !self.busy
+                                        && !self.is_running(&profile)
                                         && !crate::browser::is_open()
                                         && !state.loading
                                         && state.versions.get(state.version).is_some(),
@@ -225,80 +254,87 @@ impl Launcher {
                         );
                     });
                 }
-                egui::ScrollArea::vertical()
-                    .id_salt("modrinth_results")
-                    .max_height(350.)
-                    .show(ui, |ui| {
-                        if state.projects.is_empty() && !state.loading {
-                            ui.label(
+                if state.selected.is_none() {
+                    egui::ScrollArea::vertical()
+                        .id_salt("modrinth_results")
+                        .max_height((ui.available_height() - 45.).max(100.))
+                        .show(ui, |ui| {
+                            if state.projects.is_empty() && !state.loading {
+                                ui.label(
                                 "No se encontró contenido para esta combinación de juego y loader.",
                             );
-                        }
-                        for project in state.projects.clone() {
-                            card().inner_margin(12.).show(ui, |ui| {
-                                ui.set_min_width(ui.available_width());
-                                ui.horizontal(|ui| {
-                                    ui.vertical(|ui| {
-                                        ui.set_max_width((ui.available_width() - 150.).max(200.));
-                                        ui.strong(&project.title);
-                                        ui.label(
-                                            RichText::new(format!(
-                                                "{} · {} descargas",
-                                                project.author, project.downloads
-                                            ))
-                                            .small()
-                                            .color(palette().muted),
+                            }
+                            for project in state.projects.clone() {
+                                card().inner_margin(12.).show(ui, |ui| {
+                                    ui.set_min_width(ui.available_width());
+                                    ui.horizontal(|ui| {
+                                        ui.vertical(|ui| {
+                                            ui.set_max_width(
+                                                (ui.available_width() - 150.).max(200.),
+                                            );
+                                            ui.strong(&project.title);
+                                            ui.label(
+                                                RichText::new(format!(
+                                                    "{} · {} descargas",
+                                                    project.author, project.downloads
+                                                ))
+                                                .small()
+                                                .color(palette().muted),
+                                            );
+                                            ui.label(&project.description);
+                                        });
+                                        ui.with_layout(
+                                            Layout::right_to_left(Align::Center),
+                                            |ui| {
+                                                if ui
+                                                    .add_enabled(
+                                                        !state.loading,
+                                                        egui::Button::new("Ver versiones"),
+                                                    )
+                                                    .clicked()
+                                                {
+                                                    state.versions(project.clone());
+                                                }
+                                            },
                                         );
-                                        ui.label(&project.description);
-                                    });
-                                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                        if ui
-                                            .add_enabled(
-                                                !state.loading,
-                                                egui::Button::new("Ver versiones"),
-                                            )
-                                            .clicked()
-                                        {
-                                            state.versions(project.clone());
-                                        }
                                     });
                                 });
-                            });
-                            ui.add_space(3.);
+                                ui.add_space(3.);
+                            }
+                        });
+                    ui.horizontal(|ui| {
+                        if ui
+                            .add_enabled(
+                                !state.loading && state.offset > 0,
+                                egui::Button::new("← Anterior"),
+                            )
+                            .clicked()
+                        {
+                            state.offset = state.offset.saturating_sub(20);
+                            state.search();
+                        }
+                        ui.label(format!(
+                            "{}–{} de {}",
+                            if state.total == 0 {
+                                0
+                            } else {
+                                state.offset + 1
+                            },
+                            (state.offset + state.projects.len()).min(state.total),
+                            state.total
+                        ));
+                        if ui
+                            .add_enabled(
+                                !state.loading && state.offset + 20 < state.total,
+                                egui::Button::new("Siguiente →"),
+                            )
+                            .clicked()
+                        {
+                            state.offset += 20;
+                            state.search();
                         }
                     });
-                ui.horizontal(|ui| {
-                    if ui
-                        .add_enabled(
-                            !state.loading && state.offset > 0,
-                            egui::Button::new("← Anterior"),
-                        )
-                        .clicked()
-                    {
-                        state.offset = state.offset.saturating_sub(20);
-                        state.search();
-                    }
-                    ui.label(format!(
-                        "{}–{} de {}",
-                        if state.total == 0 {
-                            0
-                        } else {
-                            state.offset + 1
-                        },
-                        (state.offset + state.projects.len()).min(state.total),
-                        state.total
-                    ));
-                    if ui
-                        .add_enabled(
-                            !state.loading && state.offset + 20 < state.total,
-                            egui::Button::new("Siguiente →"),
-                        )
-                        .clicked()
-                    {
-                        state.offset += 20;
-                        state.search();
-                    }
-                });
+                }
             });
         state.open = open;
         if let Some(version) = install {
@@ -332,9 +368,47 @@ impl Launcher {
                 Err(e) => self.error = Some(e.to_string()),
             }
         }
-        if state.loading || self.busy {
+        if state.loading || state.search_due.is_some() || self.busy {
             ctx.request_repaint_after(Duration::from_millis(100));
         }
         self.catalog = state;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn late_search_cannot_replace_current_results() {
+        let (tx, rx) = mpsc::channel();
+        let mut state = State {
+            generation: 2,
+            loading: true,
+            rx: Some(rx),
+            ..Default::default()
+        };
+        tx.send(Message::Search(
+            1,
+            Ok(catalog::Search {
+                hits: Vec::new(),
+                total_hits: 99,
+            }),
+        ))
+        .unwrap();
+        state.poll();
+        assert!(state.loading);
+        assert_eq!(state.total, 0);
+        tx.send(Message::Search(
+            2,
+            Ok(catalog::Search {
+                hits: Vec::new(),
+                total_hits: 3,
+            }),
+        ))
+        .unwrap();
+        state.poll();
+        assert!(!state.loading);
+        assert_eq!(state.total, 3);
     }
 }
