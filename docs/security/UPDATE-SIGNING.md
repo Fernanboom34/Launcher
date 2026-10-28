@@ -30,3 +30,7 @@ Cuando se obtenga un certificado, se podrá integrar SignPath u otro proveedor. 
 ## Orden de integración
 
 Integrar también el PR de bloqueo del handle de Windows (#4) antes de distribuir: autenticar el hash no elimina por sí solo una carrera entre verificación y copia. La copia Linux comprueba el hash de los bytes efectivamente escritos antes del rename. La protección contra rollback persistente y la inmutabilidad de tags son controles distintos; no se promete resistencia a un administrador local que sustituya el propio launcher.
+
+## Guía para el propietario
+
+Consulta [Firmar y publicar en Windows](FIRMAR-RELEASE-WINDOWS.md). Desde 0.8.1 el workflow prepara un borrador: la firma local de los manifiestos es necesaria para finalizar la publicación estable.

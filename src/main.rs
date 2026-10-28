@@ -76,6 +76,7 @@ fn main() -> eframe::Result {
                 })
                 .with_min_inner_size([1060.0, 720.0])
                 .with_icon(icon())
+                .with_transparent(true)
                 .with_decorations(false)
                 .with_resizable(true),
             ..Default::default()

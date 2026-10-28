@@ -1,13 +1,13 @@
-name: Validar y publicar Luma 0.8.0 Release Windows y Linux
+name: Validar y publicar Luma 0.8.1 Release Windows y Linux
 on:
   push:
-    branches: [release/0.8.0]
-    tags: ['v0.8.0']
+    branches: [release/0.8.1]
+    tags: ['v0.8.1']
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: stable080-${{ github.ref }}
+  group: stable081-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   windows:
@@ -25,6 +25,9 @@ jobs:
           rustup component add rustfmt clippy
           cargo fmt --check
           if ($LASTEXITCODE) { throw 'Formato' }
+          $tokens = $null; $parseErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD 'scripts/publish-signed-release.ps1'), [ref]$tokens, [ref]$parseErrors) | Out-Null
+          if ($parseErrors.Count) { throw ($parseErrors | Out-String) }
           cargo clippy --locked --all-targets -- -D warnings
           if ($LASTEXITCODE) { throw 'Clippy' }
           cargo test --locked
@@ -34,14 +37,14 @@ jobs:
         run: |
           ./build.ps1
           ./scripts/test-native-installer.ps1
-          $env:LUMA_DATA_DIR = Join-Path $env:RUNNER_TEMP 'luma-cli-stable080'
+          $env:LUMA_DATA_DIR = Join-Path $env:RUNNER_TEMP 'luma-cli-stable081'
           ./target/release/luma-launcher.exe --list-profiles
           if ($LASTEXITCODE) { throw 'CLI' }
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: stable080-windows
+          name: stable081-windows
           path: |
-            artifacts/Luma-0.8.0.exe
+            artifacts/Luma-0.8.1.exe
             artifacts/Luma-Setup.exe
             artifacts/luma-release.json
             artifacts/SHA256SUMS.txt
@@ -66,27 +69,28 @@ jobs:
           cargo test --locked --all-targets
           bash scripts/build-linux.sh
           python3 scripts/test-linux-package.py
+          python3 scripts/test-update-signing.py
       - name: Capturas de skins y contenido con datos aislados
         run: |
           fixture="$RUNNER_TEMP/luma-visual-$GITHUB_RUN_ID"
           python3 scripts/prepare-visual-fixtures.py "$fixture"
           for page in skins instance; do
-            xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 LUMA_DATA_DIR="$fixture" LUMA_PREVIEW_PAGE="$page" LUMA_PREVIEW="$PWD/artifacts/stable080-$page.png" timeout 30s target/release/luma-launcher
-            test -s "artifacts/stable080-$page.png"
+            xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 LUMA_DATA_DIR="$fixture" LUMA_PREVIEW_PAGE="$page" LUMA_PREVIEW="$PWD/artifacts/stable081-$page.png" timeout 30s target/release/luma-launcher
+            test -s "artifacts/stable081-$page.png"
           done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: stable080-linux
+          name: stable081-linux
           path: |
-            artifacts/*0.8.0*linux-x64*
-            artifacts/*0.8.0*amd64.deb
+            artifacts/*0.8.1*linux-x64*
+            artifacts/*0.8.1*amd64.deb
             artifacts/luma-release-linux-x64.json
             artifacts/SHA256SUMS-linux-x64.txt
           if-no-files-found: error
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: stable080-visual-checks
-          path: artifacts/stable080-*.png
+          name: stable081-visual-checks
+          path: artifacts/stable081-*.png
           if-no-files-found: error
   audit:
     runs-on: ubuntu-22.04
@@ -126,11 +130,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
-          name: stable080-windows
+          name: stable081-windows
           path: windows
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
-          name: stable080-linux
+          name: stable081-linux
           path: linux
       - name: Verificar sumas y publicar versión estable
         run: |
@@ -138,6 +142,7 @@ jobs:
           python3 -c 'from pathlib import Path; p = Path("windows/SHA256SUMS.txt"); p.write_bytes(p.read_bytes().replace(b"\r\n", b"\n"))'
           (cd windows && sha256sum -c SHA256SUMS.txt)
           (cd linux && sha256sum -c SHA256SUMS-linux-x64.txt)
-          assets=(windows/Luma-0.8.0.exe windows/Luma-Setup.exe windows/luma-release.json windows/SHA256SUMS.txt
-                  linux/Luma-0.8.0-linux-x64 linux/Luma-0.8.0-linux-x64.tar.gz linux/luma-launcher_0.8.0_amd64.deb linux/luma-release-linux-x64.json linux/SHA256SUMS-linux-x64.txt)
-          gh release create v0.8.0 --target "$GITHUB_SHA" --latest --title 'Luma 0.8.0 — Windows y Linux x64' --notes-file docs/RELEASE-0.8.0.md "${assets[@]}"
+          assets=(windows/Luma-0.8.1.exe windows/Luma-Setup.exe windows/luma-release.json windows/SHA256SUMS.txt
+                  linux/Luma-0.8.1-linux-x64 linux/Luma-0.8.1-linux-x64.tar.gz linux/luma-launcher_0.8.1_amd64.deb linux/luma-release-linux-x64.json linux/SHA256SUMS-linux-x64.txt)
+          assets+=(LICENSE)
+          gh release create v0.8.1 --target "$GITHUB_SHA" --draft --title 'Luma 0.8.1 — Windows y Linux x64' --notes-file docs/RELEASE-0.8.1.md "${assets[@]}"

@@ -32,13 +32,15 @@ with tempfile.TemporaryDirectory(prefix='luma-package-') as temporary:
     root = Path(temporary)
     bundle = root / stem
     bundle.mkdir()
+    shutil.copy2(repo / 'LICENSE', bundle / 'LICENSE')
+    (bundle / 'SOURCE.txt').write_text(f'Source: https://github.com/Fernanboom34/Launcher/tree/v{version}\nLicense: GPL-3.0-only\n')
     shutil.copy2(binary, bundle / 'luma-launcher')
     (bundle / 'luma-launcher').chmod(0o755)
     for name in ['install.sh', 'install.py', 'luma-launcher.svg']:
         shutil.copy2(repo / 'packaging/linux' / name, bundle / name)
     (bundle / 'install.sh').chmod(0o755)
     (bundle / 'package.json').write_text(json.dumps({'version': version, 'architecture': 'x86_64', 'glibc_min': glibc}))
-    names = ['luma-launcher', 'install.sh', 'install.py', 'luma-launcher.svg', 'package.json']
+    names = ['LICENSE', 'SOURCE.txt', 'luma-launcher', 'install.sh', 'install.py', 'luma-launcher.svg', 'package.json']
     (bundle / 'SHA256SUMS.txt').write_text(''.join(hashlib.sha256((bundle / n).read_bytes()).hexdigest() + '  ' + n + '\n' for n in names))
     shutil.copy2(repo / 'docs/LINUX.md', bundle / 'README.md')
     bundle.chmod(0o755)
@@ -57,6 +59,8 @@ with tempfile.TemporaryDirectory(prefix='luma-package-') as temporary:
     (deb / 'usr/share/applications/dev.luma.Luma.desktop').write_text('[Desktop Entry]\nType=Application\nName=Luma\nComment=Launcher de Minecraft Java Edition\nExec=/usr/bin/luma-launcher\nIcon=luma-launcher\nTerminal=false\nCategories=Game;\nStartupWMClass=luma-launcher\n')
     shutil.copy2(repo / 'packaging/linux/luma-launcher.svg', deb / 'usr/share/icons/hicolor/scalable/apps/luma-launcher.svg')
     shutil.copy2(repo / 'docs/LINUX.md', deb / 'usr/share/doc/luma-launcher/README.md')
+    shutil.copy2(repo / 'LICENSE', deb / 'usr/share/doc/luma-launcher/copyright')
+    shutil.copy2(bundle / 'SOURCE.txt', deb / 'usr/share/doc/luma-launcher/SOURCE.txt')
     dependencies = f'libc6 (>= {glibc}), libgcc-s1, libx11-6, libx11-xcb1, libxcb1, libxcursor1, libxi6, libxrandr2, libxkbcommon0, libxkbcommon-x11-0, libgl1, libegl1, libwayland-client0, libwayland-cursor0, libwayland-egl1, xdg-utils'
     (deb / 'DEBIAN/control').write_text(f'Package: luma-launcher\nVersion: {deb_version}\nArchitecture: amd64\nMaintainer: Luma contributors\nSection: games\nPriority: optional\nDepends: {dependencies}\nRecommends: xdg-desktop-portal, xdg-desktop-portal-gtk\nHomepage: https://github.com/Fernanboom34/Launcher\nDescription: Luma Minecraft Java Edition launcher\n Native Linux x64 launcher with isolated instances and Modrinth content.\n')
     deb_path = artifacts / f'luma-launcher_{linux_version}_amd64.deb'
