@@ -2,7 +2,7 @@
 
 ## Versiones y alcance
 
-La línea 0.8.0 sigue siendo candidata a release. Usa los builds publicados más recientes; no se garantiza mantenimiento de betas antiguas. Los PR de seguridad deben aprobar las comprobaciones nativas de Windows y Linux antes de integrarse.
+La línea 0.8.0 sigue siendo candidata a release. Usa los builds publicados más recientes; no hay mantenimiento de betas antiguas. Los PR de seguridad deben aprobar las comprobaciones nativas de Windows y Linux antes de integrarse.
 
 ## Reportar una vulnerabilidad
 
