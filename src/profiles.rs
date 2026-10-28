@@ -922,11 +922,33 @@ pub fn duplicate(root: &Path, source: &GameProfile) -> Result<Vec<GameProfile>> 
         }
         Ok(())
     }
-    copy_tree(&source.game_dir, &copy.game_dir)?;
+    let metadata = fs::symlink_metadata(&source.game_dir)?;
+    anyhow::ensure!(
+        metadata.is_dir() && !metadata.is_symlink(),
+        "La carpeta original debe ser un directorio real"
+    );
     let mut list = load(root)?;
-    list.push(copy);
-    save(root, &list)?;
-    Ok(list)
+    fs::create_dir_all(root.join("instances"))?;
+    // Claim a fresh destination before copying. Never clean up an existing folder.
+    fs::create_dir(&copy.game_dir)?;
+    let destination = copy.game_dir.clone();
+    let result = (|| -> Result<Vec<GameProfile>> {
+        copy_tree(&source.game_dir, &destination)?;
+        list.push(copy);
+        save(root, &list)?;
+        Ok(list)
+    })();
+    if let Err(error) = result {
+        if let Err(cleanup) = crate::cleanup::delete_verified_directory(&destination, &destination)
+        {
+            return Err(error.context(format!(
+                "No se pudo retirar la copia incompleta {}: {cleanup:#}",
+                destination.display()
+            )));
+        }
+        return Err(error);
+    }
+    result
 }
 pub fn remove(root: &Path, id: &str) -> Result<Vec<GameProfile>> {
     let mut list = load(root)?;
@@ -1059,6 +1081,41 @@ mod tests {
         remove(&root, &copied[1].id).unwrap();
         let found = discover_sources(&root, Vec::new(), vec![root.clone()]).unwrap();
         assert!(found.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn failed_duplication_preserves_original_and_removes_partial_destination() {
+        let root = std::env::temp_dir().join(format!("luma-duplicate-{}", unique_id().unwrap()));
+        model::write_json(
+            &root.join("versions/duplicate-test/duplicate-test.json"),
+            &json!({"id":"duplicate-test","libraries":[]}),
+        )
+        .unwrap();
+        let profile =
+            detected_profile(&root, &root, "duplicate-test", Some("Original"), None).unwrap();
+        fs::create_dir_all(profile.game_dir.join("saves")).unwrap();
+        fs::write(profile.game_dir.join("saves/keep"), b"world").unwrap();
+        std::os::unix::fs::symlink(root.join("outside"), profile.game_dir.join("rejected-link"))
+            .unwrap();
+        save(&root, std::slice::from_ref(&profile)).unwrap();
+        let registry = fs::read(root.join("profiles.json")).unwrap();
+        let before: std::collections::HashSet<_> = fs::read_dir(root.join("instances"))
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .collect();
+        assert!(duplicate(&root, &profile).is_err());
+        let after: std::collections::HashSet<_> = fs::read_dir(root.join("instances"))
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .collect();
+        assert_eq!(before, after);
+        assert_eq!(fs::read(root.join("profiles.json")).unwrap(), registry);
+        assert_eq!(
+            fs::read(profile.game_dir.join("saves/keep")).unwrap(),
+            b"world"
+        );
+        crate::cleanup::delete_verified_directory(&root, &root).unwrap();
     }
 
     #[test]
