@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory=$true)][string]$PrivateKey,
-    [ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version = '0.8.1'
+    [ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version = '0.9.0'
 )
 $ErrorActionPreference = 'Stop'
 $repo = 'Fernanboom34/Launcher'

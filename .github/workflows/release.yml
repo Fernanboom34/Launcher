@@ -1,13 +1,12 @@
-name: Validar y publicar Luma 0.8.1 Release Windows y Linux
+name: Validar y publicar Luma 0.9.0 Release Windows y Linux
 on:
   push:
-    branches: [release/0.8.1]
-    tags: ['v0.8.1']
+    tags: ['v0.9.0']
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: stable081-${{ github.ref }}
+  group: stable090-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   windows:
@@ -37,14 +36,14 @@ jobs:
         run: |
           ./build.ps1
           ./scripts/test-native-installer.ps1
-          $env:LUMA_DATA_DIR = Join-Path $env:RUNNER_TEMP 'luma-cli-stable081'
+          $env:LUMA_DATA_DIR = Join-Path $env:RUNNER_TEMP 'luma-cli-stable090'
           ./target/release/luma-launcher.exe --list-profiles
           if ($LASTEXITCODE) { throw 'CLI' }
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: stable081-windows
+          name: stable090-windows
           path: |
-            artifacts/Luma-0.8.1.exe
+            artifacts/Luma-0.9.0.exe
             artifacts/Luma-Setup.exe
             artifacts/luma-release.json
             artifacts/SHA256SUMS.txt
@@ -70,27 +69,27 @@ jobs:
           bash scripts/build-linux.sh
           python3 scripts/test-linux-package.py
           python3 scripts/test-update-signing.py
-      - name: Capturas de skins y contenido con datos aislados
+      - name: Capturas del catálogo y contenido con datos aislados
         run: |
           fixture="$RUNNER_TEMP/luma-visual-$GITHUB_RUN_ID"
           python3 scripts/prepare-visual-fixtures.py "$fixture"
-          for page in skins instance; do
-            xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 LUMA_DATA_DIR="$fixture" LUMA_PREVIEW_PAGE="$page" LUMA_PREVIEW="$PWD/artifacts/stable081-$page.png" timeout 30s target/release/luma-launcher
-            test -s "artifacts/stable081-$page.png"
+          for page in catalog instance; do
+            xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 LUMA_DATA_DIR="$fixture" LUMA_PREVIEW_PAGE="$page" LUMA_PREVIEW_DELAY_MS=5000 LUMA_PREVIEW="$PWD/artifacts/stable090-$page.png" timeout 30s target/release/luma-launcher
+            test -s "artifacts/stable090-$page.png"
           done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: stable081-linux
+          name: stable090-linux
           path: |
-            artifacts/*0.8.1*linux-x64*
-            artifacts/*0.8.1*amd64.deb
+            artifacts/*0.9.0*linux-x64*
+            artifacts/*0.9.0*amd64.deb
             artifacts/luma-release-linux-x64.json
             artifacts/SHA256SUMS-linux-x64.txt
           if-no-files-found: error
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: stable081-visual-checks
-          path: artifacts/stable081-*.png
+          name: stable090-visual-checks
+          path: artifacts/stable090-*.png
           if-no-files-found: error
   audit:
     runs-on: ubuntu-22.04
@@ -130,19 +129,19 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
-          name: stable081-windows
+          name: stable090-windows
           path: windows
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
-          name: stable081-linux
+          name: stable090-linux
           path: linux
-      - name: Verificar sumas y publicar versión estable
+      - name: Verificar sumas y crear borrador estable para firma local
         run: |
           set -euo pipefail
           python3 -c 'from pathlib import Path; p = Path("windows/SHA256SUMS.txt"); p.write_bytes(p.read_bytes().replace(b"\r\n", b"\n"))'
           (cd windows && sha256sum -c SHA256SUMS.txt)
           (cd linux && sha256sum -c SHA256SUMS-linux-x64.txt)
-          assets=(windows/Luma-0.8.1.exe windows/Luma-Setup.exe windows/luma-release.json windows/SHA256SUMS.txt
-                  linux/Luma-0.8.1-linux-x64 linux/Luma-0.8.1-linux-x64.tar.gz linux/luma-launcher_0.8.1_amd64.deb linux/luma-release-linux-x64.json linux/SHA256SUMS-linux-x64.txt)
+          assets=(windows/Luma-0.9.0.exe windows/Luma-Setup.exe windows/luma-release.json windows/SHA256SUMS.txt
+                  linux/Luma-0.9.0-linux-x64 linux/Luma-0.9.0-linux-x64.tar.gz linux/luma-launcher_0.9.0_amd64.deb linux/luma-release-linux-x64.json linux/SHA256SUMS-linux-x64.txt)
           assets+=(LICENSE)
-          gh release create v0.8.1 --target "$GITHUB_SHA" --draft --title 'Luma 0.8.1 — Windows y Linux x64' --notes-file docs/RELEASE-0.8.1.md "${assets[@]}"
+          gh release create v0.9.0 --target "$GITHUB_SHA" --draft --title 'Luma 0.9.0 — Windows y Linux x64' --notes-file docs/RELEASE-0.9.0.md "${assets[@]}"
