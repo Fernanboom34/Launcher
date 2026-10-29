@@ -18,5 +18,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+      - name: Instalar decodificador PNG
+        run: python -m pip install -r experiments/local-skins/requirements.txt
       - name: Verificar servicio aislado y firmas de texturas
         run: python -m unittest discover -s experiments/local-skins -p 'test_*.py'

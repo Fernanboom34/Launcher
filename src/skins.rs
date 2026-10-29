@@ -36,12 +36,12 @@ impl Library {
         }
         let mut library: Self = model::read_json(&file)?;
         for skin in &mut library.skins {
-            if !skin.builtin && !skin.model_explicit {
+            if !skin.builtin {
                 if let Ok(image) = texture_path(root, &skin.id)
                     .and_then(|p| read_png(&p))
                     .and_then(|b| decode(&b))
                 {
-                    skin.slim = detect_slim(&image);
+                    skin.slim = detect_slim(&image) || (skin.model_explicit && skin.slim);
                     skin.model_explicit = true;
                 }
             }
@@ -60,6 +60,7 @@ impl Library {
         builtin: bool,
     ) -> Result<String> {
         let image = decode(bytes)?;
+        let slim = detect_slim(&image) || slim;
         let mut png = Cursor::new(Vec::new());
         image.write_to(&mut png, image::ImageFormat::Png)?;
         let bytes = png.into_inner();
@@ -127,7 +128,8 @@ impl Library {
             .find(|s| s.id == id)
             .context("Skin no encontrada")?;
         skin.name = name.trim().chars().take(60).collect();
-        skin.slim = slim;
+        let image = decode(&std::fs::read(texture_path(root, &id)?)?)?;
+        skin.slim = detect_slim(&image) || slim;
         skin.model_explicit = true;
         self.save(root)?;
         Ok(id)
@@ -487,7 +489,7 @@ mod tests {
         file.into_inner()
     }
     #[test]
-    fn slim_detection_migrates_old_imports_but_keeps_an_explicit_model() {
+    fn slim_detection_repairs_imports_and_blocks_classic_override() {
         let root = fixture();
         let mut pixels = image::RgbaImage::from_pixel(64, 64, image::Rgba([20, 150, 230, 255]));
         for y in 20..32 {
@@ -520,7 +522,7 @@ mod tests {
         migrated
             .edit(&root, &id, "Classic override", false, None)
             .unwrap();
-        assert!(!Library::load(&root).unwrap().skins[0].slim);
+        assert!(Library::load(&root).unwrap().skins[0].slim);
         crate::cleanup::delete_verified_directory(&root, &root.canonicalize().unwrap()).unwrap();
     }
     #[test]

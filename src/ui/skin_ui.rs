@@ -247,14 +247,20 @@ impl Launcher {
                     ui.heading("Editar skin");
                     ui.label("Nombre");
                     ui.text_edit_singleline(&mut self.skins.name);
-                    ui.horizontal(|ui| {
-                        ui.selectable_value(
-                            &mut self.skins.slim,
-                            false,
-                            "Clásico · brazos de 4 px",
-                        );
-                        ui.selectable_value(&mut self.skins.slim, true, "Delgado · brazos de 3 px");
+                    let locked_slim = self.skins.replacement.as_deref()
+                        .map(skins::decode)
+                        .unwrap_or_else(|| skins::texture_path(&self.root, &skin.id)
+                            .and_then(|path| skins::read_png(&path))
+                            .and_then(|bytes| skins::decode(&bytes)))
+                        .map(|image| skins::detect_slim(&image)).unwrap_or(false);
+                    if locked_slim { self.skins.slim = true; }
+                    ui.add_enabled_ui(!locked_slim, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.selectable_value(&mut self.skins.slim, false, "Clásico · brazos de 4 px");
+                            ui.selectable_value(&mut self.skins.slim, true, "Delgado · brazos de 3 px");
+                        });
                     });
+                    if locked_slim { ui.label("Este PNG usa brazos delgados. Modelo bloqueado para evitar deformaciones."); }
                     if ui.button("Cambiar archivo PNG").clicked() {
                         if let Some(path) = rfd::FileDialog::new()
                             .add_filter("Skin PNG", &["png"])

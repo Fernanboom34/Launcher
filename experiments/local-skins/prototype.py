@@ -5,6 +5,7 @@ Python 3.10+ and OpenSSL; optional Luma CLI launch in an isolated directory.
 import argparse
 import base64
 import hashlib
+import io
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
@@ -45,9 +46,31 @@ def openssl_path():
     raise RuntimeError('Instala OpenSSL o Git para Windows.')
 
 
+def resolve_model(png, requested=None):
+    # PNG has no model metadata. Transparent unused arm columns provide evidence
+    # for slim; opaque/ambiguous modern skins retain an explicit user choice.
+    from PIL import Image
+    with Image.open(io.BytesIO(png)) as source:
+        if source.format != 'PNG' or source.size not in [(64, 32), (64, 64)]:
+            raise ValueError('Se requiere una skin PNG de 64×64 o 64×32.')
+        if source.size == (64, 32):
+            if requested:
+                raise ValueError('Las skins antiguas de 64×32 solo admiten brazos clásicos.')
+            return False
+        image = source.convert('RGBA')
+        alpha = lambda x, y: image.getpixel((x, y))[3]
+        slim = (all(alpha(x,y) == 0 for y in range(20,32) for x in range(54,56))
+                and all(alpha(x,y) == 0 for y in range(52,64) for x in range(46,48))
+                and any(alpha(x,y) > 0 for y in range(20,32) for x in range(44,47))
+                and any(alpha(x,y) > 0 for y in range(52,64) for x in range(36,39)))
+        if slim and requested is False:
+            raise ValueError('El PNG usa brazos delgados; no se permite forzar brazos clásicos.')
+        return slim or bool(requested)
+
+
 class SkinService:
-    def __init__(self, name, skin, slim=False, peers=()):
-        self.requests = {"metadata": 0, "profile": 0, "texture": 0}
+    def __init__(self, name, skin, slim=None, peers=()):
+        self.requests = {"metadata": 0, "profile": 0, "texture": 0, "unknown_profile": 0}
         self.name, self.uuid = name, offline_uuid(name)
         path = Path(skin)
         if path.is_symlink() or path.stat().st_size > 1024 * 1024:
@@ -57,6 +80,7 @@ class SkinService:
                 or self.png[12:16] != b'IHDR'
                 or struct.unpack('>II', self.png[16:24]) not in [(64, 64), (64, 32)]):
             raise ValueError('Se requiere una skin PNG de 64×64 o 64×32.')
+        slim = resolve_model(self.png, slim)
         self.slim = slim
         self.texture_hash = hashlib.sha256(self.png).hexdigest()
         self.secret = secrets.token_urlsafe(24)
@@ -117,6 +141,7 @@ class SkinService:
                     owner.requests['profile'] += 1
                     profile = owner.profiles.get(route.rsplit('/',1)[-1])
                     if profile is None:
+                        owner.requests["unknown_profile"] += 1
                         self.reply(204)
                     else:
                         profile = json.loads(json.dumps(profile))
@@ -184,6 +209,7 @@ class SkinService:
                 if (len(png) < 33 or len(png) > 1024 * 1024 or png[:8] != b'\x89PNG\r\n\x1a\n' or png[12:16] != b'IHDR'
                         or struct.unpack('>II', png[16:24]) not in [(64,64),(64,32)]):
                     raise ValueError('Skin web con cabecera o dimensiones inválidas.')
+                peer_slim = resolve_model(png, peer_slim)
                 digest = hashlib.sha256(png).hexdigest()
                 if peer_name.lower() in self.names:
                     if peer_name != name or digest != self.texture_hash or peer_slim != slim:
@@ -242,7 +268,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--name', required=True)
     parser.add_argument('--skin', type=Path, required=True)
-    parser.add_argument('--slim', action='store_true')
+    models = parser.add_mutually_exclusive_group()
+    models.add_argument('--slim', dest='slim', action='store_const', const=True, default=None)
+    models.add_argument('--classic', dest='slim', action='store_const', const=False)
     parser.add_argument('--registry', help='URL HTTPS del directorio experimental fijada a un commit.')
     parser.add_argument('--agent', type=Path, required=True)
     parser.add_argument('--launcher', type=Path)
@@ -257,6 +285,9 @@ def main():
     from web_registry import load_registry
     peers = load_registry(args.registry) if args.registry else ()
     service = SkinService(args.name, args.skin, args.slim, peers)
+    print("Modelo de skin: " + ("delgado (3 px)" if service.slim else "clásico (4 px)"))
+    print("Perfiles disponibles: " + ", ".join(service.names))
+    print("LAN: ambos clientes deben conocer los mismos perfiles; importar una skin local no la publica.")
     try:
         agent_arg = '-javaagent:' + str(args.agent.resolve()) + '=' + service.url
         if not args.launcher:

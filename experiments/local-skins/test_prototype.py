@@ -60,6 +60,28 @@ class PrototypeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             prototype.offline_uuid('../escape')
 
+    def test_model_detection_and_incompatible_override(self):
+        from PIL import Image
+        import io
+        image = Image.new('RGBA', (64, 64), (200, 50, 30, 255))
+        for x0, y0 in [(54, 20), (46, 52)]:
+            for x in range(x0, x0+2):
+                for y in range(y0, y0+12):
+                    image.putpixel((x,y), (0,0,0,0))
+        output = io.BytesIO()
+        image.save(output, format='PNG')
+        self.assertTrue(prototype.resolve_model(output.getvalue()))
+        with self.assertRaises(ValueError):
+            prototype.resolve_model(output.getvalue(), False)
+        self.assertFalse(prototype.resolve_model(png()))
+        image = Image.new('RGBA', (64,32), (255,0,0,255))
+        output = io.BytesIO()
+        image.save(output, format='PNG')
+        with self.assertRaises(ValueError):
+            prototype.resolve_model(output.getvalue(), True)
+        with self.assertRaises(Exception):
+            prototype.resolve_model(png()[:33])
+
     def test_unknown_profile(self):
         self.assertEqual(self.get('sessionserver/session/minecraft/profile/' + '0' * 32).status, 204)
 

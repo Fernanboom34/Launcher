@@ -48,3 +48,27 @@ python3 experiments/local-skins/test_prototype.py
 Se verifica la firma con OpenSSL de forma independiente, el rechazo de una propiedad alterada, el UUID offline, la búsqueda por nombre, los perfiles desconocidos, el rechazo de Host/Origin ajenos y los intentos de autenticación/lectura de rutas no expuestas.
 
 La prueba visual debe documentar versión, plataforma, skin y ausencia de mods. No se extrapola un resultado en 1.21.1 a versiones distintas ni a servidores multijugador. Windows requiere una validación propia del ciclo de vida antes de distribuir.
+
+## Modelo de brazos y dependencia PNG
+
+Antes de ejecutar el prototipo o sus pruebas:
+
+```powershell
+py -m pip install -r experiments/local-skins/requirements.txt
+```
+
+El modelo se detecta automáticamente cuando el PNG tiene las columnas transparentes
+propias de brazos delgados. En ese caso `--classic` se rechaza. No necesitas
+`--slim` para esas imágenes. Para una imagen moderna ambigua se conserva la
+opción explícita `--slim`; un PNG no lleva un campo universal que declare el
+modelo. Las skins antiguas 64×32 son clásicas. El decodificador verifica el PNG
+completo y no modifica sus píxeles.
+
+El inicio muestra modelo y nombres disponibles. Importar una skin local NO la
+publica ni la transfiere al otro cliente LAN. El directorio de prueba contiene
+únicamente LumaWebA y LumaWebB; Jugador no está incluido. Los contadores finales
+incluyen unknown_profile para diagnosticar consultas sin coincidencia. Los
+perfiles enviados por un servidor pueden contener propiedades firmadas por otra
+clave o URLs loopback de otro proceso: compartir un directorio no demuestra que
+Minecraft reconsulte automáticamente esas propiedades. La visibilidad mutua
+sigue pendiente de una prueba real y no se considera corregida por estos tests.
